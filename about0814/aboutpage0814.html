@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ABOUT — CHA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600&family=Space+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#05040a;
+    --planet:#FF4081;
+    --mottle:#FF537B;
+    --ring:#F9B2D7;
+    --text:#F4E9EF;
+    --muted:rgba(244,233,239,.42);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:"Space Mono",ui-monospace,monospace;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    padding:24px;
+    text-align:center;
+  }
+  .wordmark{
+    font-family:"Syne",system-ui,sans-serif;
+    font-weight:600;font-size:20px;
+    letter-spacing:.62em;text-indent:.62em;
+    color:var(--text);
+    margin-bottom:48px;
+  }
+  main{max-width:520px}
+  h1{
+    font-family:"Syne",system-ui,sans-serif;
+    font-weight:600;
+    font-size:14px;
+    letter-spacing:.42em;text-indent:.42em;
+    color:var(--ring);
+    margin-bottom:28px;
+  }
+  p{
+    font-size:13px;
+    line-height:2;
+    color:var(--muted);
+    margin-bottom:14px;
+  }
+  a{
+    display:inline-block;
+    margin-top:36px;
+    color:var(--text);
+    text-decoration:none;
+    border:1px solid rgba(244,233,239,.55);
+    font-size:11px;
+    letter-spacing:.3em;text-indent:.3em;
+    padding:12px 28px;
+    transition:background .3s ease,color .3s ease,border-color .3s ease;
+  }
+  a:hover,a:focus-visible{
+    background:var(--text);color:var(--ink);border-color:var(--text);
+  }
+</style>
+</head>
+<body>
+
+<div class="wordmark">CHA</div>
+
+<main>
+  <h1>ABOUT</h1>
+  <p>직접 만든 결과물을 한곳에 모아 두고 다시 꺼내 보는 개인 아카이브.</p>
+  <p>CHA는 본인 1인을 위한 저장소이며, 설득이 아니라 기록을 목적으로 한다.</p>
+  <a href="../index.html">BACK</a>
+</main>
+
+</body>
+</html>

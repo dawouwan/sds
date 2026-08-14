@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CHA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600&family=Space+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#05040a;
+    --planet:#FF4081;
+    --mottle:#FF537B;
+    --ring:#F9B2D7;
+    --text:#F4E9EF;
+    --muted:rgba(244,233,239,.42);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:"Space Mono",ui-monospace,monospace;
+    overflow:hidden;
+  }
+  #scene{position:fixed;inset:0;display:block}
+
+  .wordmark{
+    position:fixed;top:34px;left:50%;transform:translateX(-50%);
+    font-family:"Syne",system-ui,sans-serif;
+    font-weight:600;font-size:20px;
+    letter-spacing:.62em;text-indent:.62em;
+    color:var(--text);
+    opacity:0;animation:markIn 1.6s .3s ease forwards;
+    z-index:3;
+  }
+  @keyframes markIn{to{opacity:1}}
+
+  .enter-wrap{
+    position:fixed;left:50%;bottom:16vh;transform:translateX(-50%);
+    z-index:3;
+  }
+  .enter{
+    position:relative;
+    background:transparent;color:var(--text);
+    border:1px solid rgba(244,233,239,.55);
+    font-family:"Space Mono",monospace;font-size:12px;
+    letter-spacing:.42em;text-indent:.42em;
+    padding:16px 40px;cursor:pointer;
+    opacity:0;visibility:hidden;
+    transition:background .45s ease,color .45s ease,border-color .45s ease;
+  }
+  .enter.show{
+    visibility:visible;
+    animation:enterIn 1.5s cubic-bezier(.2,.7,.3,1) forwards;
+  }
+  @keyframes enterIn{
+    from{opacity:0;transform:translateY(14px)}
+    to{opacity:1;transform:translateY(0)}
+  }
+  .enter:hover,.enter:focus-visible{
+    background:var(--text);color:var(--ink);border-color:var(--text);
+  }
+  .enter:focus-visible{outline:2px solid var(--ring);outline-offset:5px}
+  /* corner ticks */
+  .enter::before,.enter::after{
+    content:"";position:absolute;width:3px;height:3px;background:var(--text);
+  }
+  .enter::before{top:-6px;left:-6px;box-shadow:calc(100% + 9px) 0 0 var(--text)}
+  .enter::after{bottom:-6px;left:-6px;box-shadow:calc(100% + 9px) 0 0 var(--text)}
+
+  .enter-wrap.launch{
+    animation:flyLeft 1.05s cubic-bezier(.6,.02,.9,.4) forwards;
+  }
+  @keyframes flyLeft{
+    0%{transform:translateX(-50%)}
+    18%{transform:translateX(-46%) }
+    100%{transform:translateX(-160vw) rotate(-7deg);opacity:0}
+  }
+
+  .after{
+    position:fixed;left:50%;bottom:16vh;transform:translateX(-50%);
+    text-align:center;font-size:11px;letter-spacing:.2em;
+    color:var(--muted);line-height:2;
+    opacity:0;pointer-events:none;z-index:3;width:min(90vw,420px);
+  }
+  .after.show{animation:markIn 1.2s .5s ease forwards}
+  .after kbd{
+    font:inherit;border:1px solid var(--muted);padding:1px 6px;
+  }
+
+  @media (max-width:560px){
+    .wordmark{font-size:15px;top:26px}
+    .enter{font-size:11px;padding:14px 30px}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .enter.show{animation:none;opacity:1}
+    .enter-wrap.launch{animation:none;opacity:0}
+    .wordmark{animation:none;opacity:1}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="scene" aria-hidden="true"></canvas>
+
+<div class="wordmark">CHA</div>
+
+<div class="enter-wrap" id="enterWrap">
+  <button class="enter" id="enterBtn" type="button">ENTER</button>
+</div>
+
+<p class="after" id="after">
+  리스트 화면은 아직 없습니다<br>
+  <kbd>R</kbd> 처음부터 다시 보기
+</p>
+
+<script>
+(() => {
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+  const enterWrap = document.getElementById('enterWrap');
+  const enterBtn  = document.getElementById('enterBtn');
+  const after     = document.getElementById('after');
+  const reduced   = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- deterministic noise ---------- */
+  const mulberry32 = a => () => {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+
+  /* ---------- planet texture: tidy mottling, seamless in x ---------- */
+  const TEX_W = 1024, TEX_H = 512;
+  const tex = document.createElement('canvas');
+  tex.width = TEX_W; tex.height = TEX_H;
+  (() => {
+    const t = tex.getContext('2d');
+    const rnd = mulberry32(20260813);
+    t.fillStyle = '#FF4081';
+    t.fillRect(0, 0, TEX_W, TEX_H);
+
+    // ordered latitude bands — regular spacing, gentle jitter: patterned, not noisy
+    const rows = 11;
+    for (let pass = 0; pass < 2; pass++) {
+      t.filter = pass === 0 ? 'blur(14px)' : 'blur(6px)';
+      t.globalAlpha = pass === 0 ? 0.55 : 0.32;
+      t.fillStyle = '#FF537B';
+      for (let r = 0; r < rows; r++) {
+        const lat = (r + 0.5) / rows;
+        const y = lat * TEX_H;
+        // fewer, wider marks near the poles
+        const count = Math.round(3 + Math.sin(lat * Math.PI) * 6);
+        const step = TEX_W / count;
+        for (let i = 0; i < count; i++) {
+          const x  = i * step + step * (0.25 + rnd() * 0.5);
+          const rx = step * (0.20 + rnd() * 0.16) * (pass === 0 ? 1 : 0.6);
+          const ry = (TEX_H / rows) * (0.30 + rnd() * 0.22);
+          for (const ox of [-TEX_W, 0, TEX_W]) {   // wrap seam
+            t.beginPath();
+            t.ellipse(x + ox, y, rx, ry, 0, 0, Math.PI * 2);
+            t.fill();
+          }
+        }
+      }
+    }
+    t.filter = 'none';
+    t.globalAlpha = 1;
+  })();
+
+  /* ---------- ring bands: #F9B2D7 with saturation climbing outward ---------- */
+  const BANDS = [
+    { r: 1.34, w: 0.055, s: 52, l: 89 },
+    { r: 1.48, w: 0.048, s: 66, l: 85 },
+    { r: 1.60, w: 0.062, s: 79, l: 80 },
+    { r: 1.75, w: 0.044, s: 91, l: 73 },
+    { r: 1.88, w: 0.070, s: 100, l: 66 }
+  ];
+  const HUE = 322;                    // hue of #F9B2D7
+  const TILT = -0.30;                 // radians
+  const FLAT = 0.30;                  // ring ellipse squash
+
+  /* ---------- stars ---------- */
+  let stars = [];
+  const seedStars = (w, h) => {
+    const rnd = mulberry32(77);
+    stars = Array.from({ length: Math.round(w * h / 9000) }, () => ({
+      x: rnd() * w, y: rnd() * h,
+      r: rnd() * 1.1 + 0.25,
+      a: rnd() * 0.5 + 0.15,
+      p: rnd() * Math.PI * 2
+    }));
+  };
+
+  /* ---------- sizing ---------- */
+  let W, H, cx, cy, R, dpr;
+  const resize = () => {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    R  = Math.min(W, H) * (W < 620 ? 0.21 : 0.19);
+    cx = W / 2;
+    cy = H * 0.42;
+    seedStars(W, H);
+  };
+  addEventListener('resize', resize);
+  resize();
+
+  /* ---------- drawing ---------- */
+  function drawStars(t) {
+    for (const s of stars) {
+      const tw = 0.72 + 0.28 * Math.sin(t * 0.0009 + s.p);
+      ctx.globalAlpha = s.a * tw;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function ringPoint(theta, rad) {
+    const x = Math.cos(theta) * rad;
+    const y = Math.sin(theta) * rad * FLAT;
+    return [
+      cx + x * Math.cos(TILT) - y * Math.sin(TILT),
+      cy + x * Math.sin(TILT) + y * Math.cos(TILT)
+    ];
+  }
+
+  // half = 'back' (theta pi..2pi) or 'front' (0..pi)
+  function drawRings(spin, half) {
+    const from = half === 'front' ? 0 : Math.PI;
+    const to   = from + Math.PI;
+    const SEG  = 90;
+    ctx.lineCap = 'butt';
+    for (const b of BANDS) {
+      const rad = R * b.r;
+      ctx.lineWidth = R * b.w;
+      for (let i = 0; i < SEG; i++) {
+        const t0 = from + (i / SEG) * (to - from);
+        const t1 = from + ((i + 1.02) / SEG) * (to - from);
+        // brightness travels around the ring — this is what reads as rotation
+        const wave = 0.5 + 0.5 * Math.sin(t0 * 3 + spin);
+        ctx.globalAlpha = (0.30 + 0.55 * wave) * (half === 'back' ? 0.55 : 1);
+        ctx.strokeStyle = `hsl(${HUE} ${b.s}% ${b.l}%)`;
+        const [x0, y0] = ringPoint(t0, rad);
+        const [x1, y1] = ringPoint(t1, rad);
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPlanet(rot) {
+    // outer glow
+    const glow = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.6);
+    glow.addColorStop(0, 'rgba(255,64,129,.28)');
+    glow.addColorStop(1, 'rgba(255,64,129,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 1.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.clip();
+
+    // orthographic sphere mapping, column by column
+    const step = 1;
+    for (let x = -R; x <= R; x += step) {
+      const ny = x / R;
+      const clamped = Math.max(-0.9999, Math.min(0.9999, ny));
+      const lon = Math.asin(clamped);
+      let u = (lon / Math.PI + 0.5 + rot) % 1;
+      if (u < 0) u += 1;
+      const du = (1 / Math.PI) * (1 / Math.sqrt(1 - clamped * clamped)) / R;
+      const sw = Math.max(1, Math.min(TEX_W * du * step, TEX_W * 0.2));
+      const chord = 2 * Math.sqrt(Math.max(R * R - x * x, 0));
+      ctx.drawImage(
+        tex, u * TEX_W, 0, sw, TEX_H,
+        cx + x, cy - chord / 2, step + 1, chord
+      );
+    }
+
+    // terminator — light sits upper-right, matching the reference
+    const shade = ctx.createRadialGradient(
+      cx + R * 0.42, cy - R * 0.42, R * 0.12,
+      cx, cy, R * 1.25
+    );
+    shade.addColorStop(0,   'rgba(255,180,205,.22)');
+    shade.addColorStop(.42, 'rgba(0,0,0,0)');
+    shade.addColorStop(1,   'rgba(3,2,8,.82)');
+    ctx.fillStyle = shade;
+    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    ctx.restore();
+
+    // rim light
+    ctx.strokeStyle = 'rgba(255,196,216,.34)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R - 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  /* ---------- loop ---------- */
+  const REVEAL_AT = 3400;   // ENTER appears after the rings have turned
+  let start = null, revealed = false, raf = null;
+
+  function frame(now) {
+    if (start === null) start = now;
+    const t = now - start;
+
+    const rot  = reduced ? 0.12 : (t * 0.000018) % 1;   // planet spin
+    const spin = reduced ? 0.6  : t * 0.00085;          // ring travel
+
+    ctx.fillStyle = '#05040a';
+    ctx.fillRect(0, 0, W, H);
+    drawStars(t);
+    drawRings(spin, 'back');
+    drawPlanet(rot);
+    drawRings(spin, 'front');
+
+    if (!revealed && (reduced || t > REVEAL_AT)) {
+      revealed = true;
+      enterBtn.classList.add('show');
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  raf = requestAnimationFrame(frame);
+
+  /* ---------- ENTER ---------- */
+  let launched = false;
+  const launch = () => {
+    if (launched || !revealed) return;
+    launched = true;
+    enterWrap.classList.add('launch');       // breaks off the ring's path, exits left
+    enterBtn.disabled = true;
+    setTimeout(() => after.classList.add('show'), 900);
+  };
+  enterBtn.addEventListener('click', launch);
+
+  addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !launched && revealed && document.activeElement !== enterBtn) launch();
+    if ((e.key === 'r' || e.key === 'R') && launched) location.reload();
+  });
+})();
+</script>
+</body>
+</html>
