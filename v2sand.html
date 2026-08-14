@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>모래시계</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { screens: { tablet: '768px', desktop: '1440px' } } };
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<style>
+  @font-face{
+    font-family:'ChosunGs';
+    src:url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_20-04@1.0/ChosunGs.woff') format('woff');
+    font-weight:normal; font-style:normal; font-display:swap;
+  }
+
+  :root{
+    --bg-bottom:#0B1220;
+    --bg-top:#152d57;
+    --text:#a1b88d;
+    --glow:#d5e1f5;
+  }
+  html,body{
+    height:100%; margin:0;
+    overflow:hidden; overscroll-behavior:none;
+    background:var(--bg-bottom);
+  }
+  #scene{
+    position:fixed; inset:0;
+    width:100%; height:100%;
+    display:block; touch-action:none;
+  }
+  .title-face{ font-family:'ChosunGs','Noto Sans KR',sans-serif; }
+  .hint-face{ font-family:'Noto Sans KR',sans-serif; }
+
+  #grain{
+    position:fixed; inset:0; z-index:5;
+    pointer-events:none; opacity:.05; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  /* ── 제목 클릭으로 모드 전환 ───────────────────────── */
+  #title{
+    cursor:pointer;
+    transition:text-shadow .45s ease;
+  }
+  #title[data-mode="move"]{
+    text-shadow:0 0 12px rgba(213,225,245,.55);
+  }
+
+  /* 페이지 인디케이터 — 이동 모드일 때만 */
+  #pageDots{
+    position:fixed; z-index:20;
+    right:1.65rem; top:50%; transform:translateY(-50%);
+    display:flex; flex-direction:column; gap:.7rem;
+    opacity:0; pointer-events:none;
+    transition:opacity .5s ease;
+  }
+  #pageDots .dot{
+    width:5px; height:5px; border-radius:50%;
+    background:var(--text); opacity:.22;
+    transition:opacity .4s ease, transform .4s ease;
+  }
+  #pageDots .dot[data-on="true"]{ opacity:.95; transform:scale(1.45); }
+
+  /* 플레이스홀더 페이지 오버레이 */
+  .page-layer{
+    position:fixed; inset:0; z-index:8;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    text-align:center; padding:0 8vw;
+    pointer-events:none; opacity:0;
+  }
+  .page-layer .idx{
+    font-size:10px; letter-spacing:.45em; opacity:.5;
+    margin-bottom:1.4rem; font-family:'Noto Sans KR',sans-serif; font-weight:300;
+  }
+  .page-layer .headline{
+    font-family:'ChosunGs','Noto Sans KR',sans-serif;
+    font-size:clamp(1.4rem, 4.2vw, 2.6rem);
+    letter-spacing:.06em; line-height:1.5;
+  }
+  .page-layer .sub{
+    margin-top:1.5rem; font-size:11px; letter-spacing:.22em;
+    opacity:.45; font-family:'Noto Sans KR',sans-serif; font-weight:300;
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .title-init{opacity:1 !important;filter:none !important;clip-path:inset(0 0% 0 0) !important;}
+  }
+</style>
+</head>
+<body class="text-[--text]">
+
+<canvas id="scene"></canvas>
+<div id="grain"></div>
+
+<!-- 오버레이 UI -->
+<div id="title"
+     class="title-face title-init fixed top-5 left-5 tablet:top-7 tablet:left-7 desktop:top-8 desktop:left-8 z-10 text-base tablet:text-lg desktop:text-xl tracking-wide select-none"
+     style="color:var(--text); opacity:0; clip-path:inset(0 100% 0 0); filter:blur(10px);"
+     data-mode="light">
+  모래시계
+</div>
+
+<div id="pageDots">
+  <div class="dot" data-on="true"></div>
+  <div class="dot" data-on="false"></div>
+  <div class="dot" data-on="false"></div>
+  <div class="dot" data-on="false"></div>
+</div>
+
+<!-- 플레이스홀더 페이지 3장 -->
+<div class="page-layer hint-face" data-page="1">
+  <div class="idx">01</div>
+  <div class="headline">아직 비어 있는 자리</div>
+  <div class="sub">PLACEHOLDER</div>
+</div>
+<div class="page-layer hint-face" data-page="2">
+  <div class="idx">02</div>
+  <div class="headline">무엇을 넣을지 정하지 않았습니다</div>
+  <div class="sub">PLACEHOLDER</div>
+</div>
+<div class="page-layer hint-face" data-page="3">
+  <div class="idx">03</div>
+  <div class="headline">여기까지가 지금의 전부입니다</div>
+  <div class="sub">PLACEHOLDER</div>
+</div>
+
+<p id="hint"
+   class="hint-face fixed bottom-6 tablet:bottom-8 desktop:bottom-10 left-1/2 -translate-x-1/2 z-10 w-[86vw] tablet:w-auto text-[10px] tablet:text-[11px] desktop:text-xs font-light tracking-[0.18em] tablet:tracking-[0.32em] desktop:tracking-[0.35em] text-center select-none tablet:whitespace-nowrap"
+   style="color:var(--text); opacity:0;">
+  가까이 다가가면 모래가 끌려옵니다 &nbsp;·&nbsp; 휠로 빛을 밝혀보세요
+</p>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* =========================================================
+   0. 성능 설정 — 여기 값만 만지면 전체 부하가 조절된다
+   ========================================================= */
+const PERF = {
+  // 유리 표현 방식
+  //  'fresnel'      — 가산 합성 프레넬 껍질. 디퓨즈가 없어 내부를 절대 가리지 않는다. 가장 가볍고 기본값
+  //  'physical'     — 반투명 반사 유리. 약간의 뿌연 느낌이 생긴다
+  //  'transmission' — 원래의 물리 굴절. 매 프레임 씬을 한 번 더 렌더하므로 가장 무겁다
+  glassMode: 'fresnel',
+
+  // 프레넬 유리 조율값
+  fresnelPower: 2.6,      // 클수록 테두리에만 얇게 빛난다 (내부가 더 잘 보임)
+  fresnelIntensity: 0.62, // 전체 밝기
+  fresnelBase: 0.015,     // 정면에서도 남는 최소한의 존재감. 0이면 유리가 사라진다
+
+  maxPixelRatio: 1.5,   // 기존 2 → 1.5 (픽셀 수 약 44% 감소)
+  antialias: false,     // 컴포저를 쓰면 캔버스 AA는 어차피 적용되지 않는다. 순수 낭비였음
+  bloomScale: 0.5,      // 블룸을 절반 해상도로 계산
+  bloomRadius: 0.5,
+};
+
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function getTier() {
+  if (innerWidth < 768) return 'mobile';
+  if (innerWidth < 1440) return 'tablet';
+  return 'desktop';
+}
+const TIER = getTier();
+const COARSE = matchMedia('(pointer:coarse)').matches;
+const WEAK_HW = (navigator.hardwareConcurrency || 4) <= 4;
+const DOWNSHIFT = (COARSE || WEAK_HW) ? 0.65 : 1;
+
+// 입자 수 하향 — 데스크탑 기준 sand 3200 → 1800
+const PARTICLE_BASE = {
+  mobile:  { sand: 700,  glow: 90,  trail: 36 },
+  tablet:  { sand: 1200, glow: 170, trail: 60 },
+  desktop: { sand: 1800, glow: 260, trail: 90 },
+}[TIER];
+
+const SAND_COUNT  = Math.round(PARTICLE_BASE.sand * DOWNSHIFT);
+const GLOW_COUNT  = Math.round(PARTICLE_BASE.glow * DOWNSHIFT);
+const TRAIL_COUNT = Math.round(PARTICLE_BASE.trail * DOWNSHIFT);
+
+/* =========================================================
+   1. 유리 프로파일
+   ========================================================= */
+const PROFILE = [
+  [-1.62, 0.001], [-1.58, 0.62], [-1.30, 0.92], [-0.85, 0.92], [-0.40, 0.55],
+  [-0.10, 0.16], [0, 0.10], [0.10, 0.16], [0.40, 0.55], [0.85, 0.92],
+  [1.30, 0.92], [1.58, 0.62], [1.62, 0.001],
+];
+const BOTTOM_TIP_Y = PROFILE[0][0];
+const TOP_TIP_Y = PROFILE[PROFILE.length - 1][0];
+const NECK_Y = 0;
+const SAND_R = 0.86;
+
+function glassRadius(y) {
+  y = Math.max(BOTTOM_TIP_Y, Math.min(TOP_TIP_Y, y));
+  for (let k = 0; k < PROFILE.length - 1; k++) {
+    const [y0, r0] = PROFILE[k], [y1, r1] = PROFILE[k + 1];
+    if (y >= y0 && y <= y1) {
+      const t = (y - y0) / (y1 - y0 || 1);
+      return r0 + (r1 - r0) * t;
+    }
+  }
+  return PROFILE[PROFILE.length - 1][1];
+}
+
+function buildVolumeLookup(yFrom, yTo, steps = 160) {
+  const heights = new Float32Array(steps + 1);
+  const cumVol = new Float32Array(steps + 1);
+  const dy = (yTo - yFrom) / steps;
+  let acc = 0;
+  for (let i = 0; i <= steps; i++) {
+    const y = yFrom + dy * i;
+    heights[i] = y;
+    if (i > 0) {
+      const rPrev = glassRadius(heights[i - 1]) * SAND_R;
+      const rCur = glassRadius(y) * SAND_R;
+      const rAvg = (rPrev + rCur) / 2;
+      acc += Math.PI * rAvg * rAvg * Math.abs(dy);
+    }
+    cumVol[i] = acc;
+  }
+  return { heights, cumVol, total: acc };
+}
+function rankToHeight(table, fraction) {
+  const target = table.total * Math.max(0, Math.min(1, fraction));
+  let lo = 0, hi = table.cumVol.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (table.cumVol[mid] < target) lo = mid + 1; else hi = mid;
+  }
+  return table.heights[lo];
+}
+
+const topTable = buildVolumeLookup(NECK_Y + 0.03, TOP_TIP_Y - 0.02);
+const bottomTable = buildVolumeLookup(BOTTOM_TIP_Y + 0.02, NECK_Y - 0.03);
+
+/* =========================================================
+   2. 렌더러 · 씬 · 카메라
+   ========================================================= */
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: PERF.antialias });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, PERF.maxPixelRatio));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(36, innerWidth / innerHeight, 0.1, 100);
+
+/* 배경 그라데이션 — 페이지가 넘어가도 색이 이어지도록 보간해서 다시 그린다 */
+const bgCanvas = document.createElement('canvas');
+bgCanvas.width = 2; bgCanvas.height = 512;
+const bgCtx = bgCanvas.getContext('2d');
+const bgTex = new THREE.CanvasTexture(bgCanvas);
+bgTex.colorSpace = THREE.SRGBColorSpace;
+scene.background = bgTex;
+
+const bgBottom = new THREE.Color('#0B1220');
+const bgTop = new THREE.Color('#152d57');
+function paintBackground() {
+  const g = bgCtx.createLinearGradient(0, 512, 0, 0);
+  g.addColorStop(0, '#' + bgBottom.getHexString());
+  g.addColorStop(1, '#' + bgTop.getHexString());
+  bgCtx.fillStyle = g;
+  bgCtx.fillRect(0, 0, 2, 512);
+  bgTex.needsUpdate = true;
+}
+paintBackground();
+
+// 환경맵은 physical/transmission 유리만 사용한다. 프레넬 모드에선 생성 자체를 건너뛴다
+if (PERF.glassMode !== 'fresnel') {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.045).texture;
+  pmrem.dispose();
+}
+
+scene.add(new THREE.AmbientLight(0x8fa8d0, 0.32));
+const keyLight = new THREE.DirectionalLight(0xeaf2ff, 1.2);
+keyLight.position.set(3, 4, 3);
+scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0x6c9fd9, 0.55);
+rimLight.position.set(-3, -2, -4);
+scene.add(rimLight);
+
+/* =========================================================
+   3. 모래시계 유리
+   ========================================================= */
+const latheGeo = new THREE.LatheGeometry(
+  PROFILE.map(([y, r]) => new THREE.Vector2(r, y)),
+  PERF.glassMode === 'transmission' ? 56 : 44
+);
+
+/* 프레넬 유리 — 디퓨즈가 없다.
+   시선과 표면이 스칠수록(테두리) 밝아지고, 정면(중앙)은 거의 0이 된다.
+   가산 합성이라 어떤 경우에도 내부를 어둡게 덮지 않는다. */
+const glassVertex = `
+  varying vec3 vNormalW;
+  varying vec3 vViewDir;
+  void main(){
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vNormalW = normalize(normalMatrix * normal);
+    vViewDir = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const glassFragment = `
+  precision mediump float;
+  varying vec3 vNormalW;
+  varying vec3 vViewDir;
+  uniform vec3 uColor;
+  uniform float uPower;
+  uniform float uIntensity;
+  uniform float uBase;
+  void main(){
+    float facing = abs(dot(normalize(vNormalW), normalize(vViewDir)));
+    float rim = pow(1.0 - facing, uPower);
+    float a = (uBase + rim) * uIntensity;
+    gl_FragColor = vec4(uColor * a, a);
+  }
+`;
+
+let glassMat;
+if (PERF.glassMode === 'fresnel') {
+  glassMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color('#cfe2ff') },
+      uPower: { value: PERF.fresnelPower },
+      uIntensity: { value: PERF.fresnelIntensity },
+      uBase: { value: PERF.fresnelBase },
+    },
+    vertexShader: glassVertex,
+    fragmentShader: glassFragment,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+} else if (PERF.glassMode === 'physical') {
+  glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0x0a0f18, metalness: 0, roughness: 0.07,
+    ior: 1.3, clearcoat: 0.55, clearcoatRoughness: 0.2,
+    envMapIntensity: 1.3, specularIntensity: 0.7,
+    side: THREE.DoubleSide, transparent: true, opacity: 0.28, depthWrite: false,
+  });
+} else {
+  glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff, metalness: 0, roughness: 0.02,
+    transmission: 1, thickness: 0.12, ior: 1.3,
+    attenuationColor: new THREE.Color('#eef4ff'), attenuationDistance: 3.5,
+    clearcoat: 0.15, clearcoatRoughness: 0.35,
+    envMapIntensity: 0.4, specularIntensity: 0.35,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+  });
+}
+
+const glassMesh = new THREE.Mesh(latheGeo, glassMat);
+glassMesh.renderOrder = -1; // 모래보다 먼저 그려 유리가 입자를 덮지 않도록
+scene.add(glassMesh);
+
+const GLASS_BASE_OPACITY = glassMat.opacity !== undefined ? glassMat.opacity : 1;
+// 페이지 전환 시 유리를 흐리게 — 머티리얼 종류에 관계없이 동작
+function setGlassDim(f) {
+  if (PERF.glassMode === 'fresnel') {
+    glassMat.uniforms.uIntensity.value = PERF.fresnelIntensity * f;
+  } else {
+    glassMat.opacity = GLASS_BASE_OPACITY * f;
+  }
+}
+
+/* =========================================================
+   4. 모래 입자
+   ========================================================= */
+const N = SAND_COUNT;
+const pos = new Float32Array(N * 3);
+const vel = new Float32Array(N * 3);
+const resting = new Uint8Array(N);
+const pile = new Uint8Array(N);
+const rankOwner = new Int32Array(N);
+
+(function initSand() {
+  const ranks = Array.from({ length: N }, (_, i) => i);
+  for (let i = ranks.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [ranks[i], ranks[j]] = [ranks[j], ranks[i]];
+  }
+  for (let i = 0; i < N; i++) {
+    const rank = ranks[i];
+    rankOwner[rank] = i;
+    const y = rankToHeight(topTable, rank / N);
+    const rMax = glassRadius(y) * SAND_R;
+    const r = rMax * Math.sqrt(Math.random());
+    const theta = Math.random() * Math.PI * 2;
+    pos[i * 3] = r * Math.cos(theta);
+    pos[i * 3 + 1] = y;
+    pos[i * 3 + 2] = r * Math.sin(theta);
+    resting[i] = 1;
+    pile[i] = 0;
+  }
+})();
+
+let topRemainingCount = N;
+let bottomCount = 0;
+// 매 프레임 이진탐색하던 것을 캐시로 대체 — settle이 일어날 때만 갱신
+let settleThresholdY = rankToHeight(bottomTable, 0);
+
+function makeDotTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.85)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(32, 32, 32, 0, Math.PI * 2); ctx.fill();
+  return new THREE.CanvasTexture(c);
+}
+const dotTex = makeDotTexture();
+
+const sandGeo = new THREE.BufferGeometry();
+const sandPosAttr = new THREE.BufferAttribute(pos, 3);
+sandPosAttr.setUsage(THREE.DynamicDrawUsage);
+sandGeo.setAttribute('position', sandPosAttr);
+const sandMat = new THREE.PointsMaterial({
+  color: new THREE.Color('#6cd5d9'),
+  size: 0.058, sizeAttenuation: true,
+  map: dotTex, alphaTest: 0.35,
+  transparent: true, depthWrite: true, opacity: 1,
+});
+const sandPoints = new THREE.Points(sandGeo, sandMat);
+scene.add(sandPoints);
+
+function settleToBottom(i) {
+  const rank = bottomCount;
+  bottomCount = Math.min(bottomCount + 1, N);
+  const targetY = rankToHeight(bottomTable, rank / N);
+  settleThresholdY = rankToHeight(bottomTable, bottomCount / N);
+  const curR = Math.hypot(pos[i * 3], pos[i * 3 + 2]);
+  const maxR = glassRadius(targetY) * SAND_R;
+  const r = Math.min(curR, maxR);
+  const theta = Math.atan2(pos[i * 3 + 2], pos[i * 3]);
+  pos[i * 3] = r * Math.cos(theta);
+  pos[i * 3 + 1] = targetY;
+  pos[i * 3 + 2] = r * Math.sin(theta);
+  vel[i * 3] = vel[i * 3 + 1] = vel[i * 3 + 2] = 0;
+  resting[i] = 1;
+  pile[i] = 1;
+}
+
+function tryReleaseTop() {
+  while (topRemainingCount > 0) {
+    const idx = rankOwner[topRemainingCount - 1];
+    if (resting[idx] === 0) { topRemainingCount--; continue; }
+    resting[idx] = 0;
+    vel[idx * 3 + 1] = -0.05;
+    topRemainingCount--;
+    return;
+  }
+}
+
+const FLOW_RATE = N / 300;
+let trickleAcc = 0;
+
+/* =========================================================
+   5. 발광 파티클 + 트레일
+   ========================================================= */
+const glowVertex = `
+  attribute float aSize;
+  attribute float aAlpha;
+  varying float vAlpha;
+  void main(){
+    vAlpha = aAlpha;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = aSize * (280.0 / -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const glowFragment = `
+  precision mediump float;
+  varying float vAlpha;
+  uniform vec3 uColor;
+  void main(){
+    float d = length(gl_PointCoord - 0.5);
+    float a = smoothstep(0.5, 0.0, d) * vAlpha;
+    if(a <= 0.002) discard;
+    gl_FragColor = vec4(uColor, a);
+  }
+`;
+function makeGlowMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color('#d5e1f5') } },
+    vertexShader: glowVertex, fragmentShader: glowFragment,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+}
+
+const glowPos = new Float32Array(GLOW_COUNT * 3);
+const glowBaseY = new Float32Array(GLOW_COUNT);
+const glowPhase = new Float32Array(GLOW_COUNT);
+const glowSize = new Float32Array(GLOW_COUNT);
+const glowAlpha = new Float32Array(GLOW_COUNT);
+for (let i = 0; i < GLOW_COUNT; i++) {
+  const y = BOTTOM_TIP_Y + Math.random() * (TOP_TIP_Y - BOTTOM_TIP_Y);
+  const rMax = Math.max(glassRadius(y) * 1.15, 0.2);
+  const r = rMax * Math.sqrt(Math.random());
+  const theta = Math.random() * Math.PI * 2;
+  glowPos[i * 3] = r * Math.cos(theta);
+  glowPos[i * 3 + 1] = y;
+  glowPos[i * 3 + 2] = r * Math.sin(theta);
+  glowBaseY[i] = y;
+  glowPhase[i] = Math.random() * Math.PI * 2;
+  glowSize[i] = 0.05 + Math.random() * 0.09;
+  glowAlpha[i] = 0;
+}
+const glowGeo = new THREE.BufferGeometry();
+glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3).setUsage(THREE.DynamicDrawUsage));
+glowGeo.setAttribute('aSize', new THREE.BufferAttribute(glowSize, 1));
+glowGeo.setAttribute('aAlpha', new THREE.BufferAttribute(glowAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+const glowPoints = new THREE.Points(glowGeo, makeGlowMaterial());
+scene.add(glowPoints);
+const glowPosAttr = glowGeo.getAttribute('position');
+const glowAlphaAttr = glowGeo.getAttribute('aAlpha');
+
+const trailPos = new Float32Array(TRAIL_COUNT * 3);
+const trailAlpha = new Float32Array(TRAIL_COUNT);
+const trailSize = new Float32Array(TRAIL_COUNT);
+const trailAge = new Float32Array(TRAIL_COUNT);
+const trailMax = new Float32Array(TRAIL_COUNT);
+const trailVy = new Float32Array(TRAIL_COUNT);
+let trailCursor = 0;
+for (let i = 0; i < TRAIL_COUNT; i++) { trailAge[i] = 999; }
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3).setUsage(THREE.DynamicDrawUsage));
+trailGeo.setAttribute('aSize', new THREE.BufferAttribute(trailSize, 1).setUsage(THREE.DynamicDrawUsage));
+trailGeo.setAttribute('aAlpha', new THREE.BufferAttribute(trailAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+const trailPoints = new THREE.Points(trailGeo, makeGlowMaterial());
+scene.add(trailPoints);
+const trailPosAttr = trailGeo.getAttribute('position');
+const trailAlphaAttr = trailGeo.getAttribute('aAlpha');
+const trailSizeAttr = trailGeo.getAttribute('aSize');
+
+function spawnTrail(x, y, z) {
+  const i = trailCursor;
+  trailCursor = (trailCursor + 1) % TRAIL_COUNT;
+  trailPos[i * 3] = x + (Math.random() - 0.5) * 0.05;
+  trailPos[i * 3 + 1] = y;
+  trailPos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.05;
+  trailAge[i] = 0;
+  trailMax[i] = 0.5 + Math.random() * 0.4;
+  trailSize[i] = 0.03 + Math.random() * 0.03;
+  trailVy[i] = -0.15 - Math.random() * 0.1;
+}
+
+/* =========================================================
+   6. 자석 하이라이트
+   ========================================================= */
+const haloMat = makeGlowMaterial();
+const haloGeo = new THREE.BufferGeometry();
+haloGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+haloGeo.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array([0]), 1).setUsage(THREE.DynamicDrawUsage));
+haloGeo.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array([0]), 1).setUsage(THREE.DynamicDrawUsage));
+const halo = new THREE.Points(haloGeo, haloMat);
+scene.add(halo);
+const haloPosAttr = haloGeo.getAttribute('position');
+const haloAlphaAttr = haloGeo.getAttribute('aAlpha');
+const haloSizeAttr = haloGeo.getAttribute('aSize');
+haloSizeAttr.array[0] = 0.5;
+haloSizeAttr.needsUpdate = true;
+
+/* =========================================================
+   7. 페이지 · 모드 상태
+   ========================================================= */
+// 배경색은 페이지마다 조금씩만 달라진다 — 이어져 있다는 느낌이 끊기지 않도록
+const PAGES = [
+  { key: 'hero', hash: '',    top: '#152d57', bottom: '#0B1220', dolly: 0 },
+  { key: 'p1',   hash: '#01', top: '#1a3050', bottom: '#0B1220', dolly: 1 },
+  { key: 'p2',   hash: '#02', top: '#1e3348', bottom: '#0C1119', dolly: 1 },
+  { key: 'p3',   hash: '#03', top: '#233241', bottom: '#0D1016', dolly: 1 },
+];
+
+let currentPage = 0;
+let wheelMode = 'light';   // 'light' | 'move'
+let pageLocked = false;
+
+// 카메라·밝기에 쓰이는 보간 상태
+const view = { dolly: 0, dim: 0 };
+const bgLerp = { t: 0 };
+const bgFromTop = new THREE.Color(PAGES[0].top);
+const bgToTop = new THREE.Color(PAGES[0].top);
+const bgFromBottom = new THREE.Color(PAGES[0].bottom);
+const bgToBottom = new THREE.Color(PAGES[0].bottom);
+
+const pageLayers = [...document.querySelectorAll('.page-layer')];
+const dotEls = [...document.querySelectorAll('#pageDots .dot')];
+const pageDotsEl = document.getElementById('pageDots');
+const hintEl = document.getElementById('hint');
+const titleEl = document.getElementById('title');
+
+const HINTS = {
+  light: '가까이 다가가면 모래가 끌려옵니다 &nbsp;·&nbsp; 휠로 빛을 밝혀보세요',
+  move:  '휠을 굴려 다음으로 이동합니다 &nbsp;·&nbsp; 빛으로 돌아가려면 우측 상단',
+};
+
+function setMode(next) {
+  if (next === wheelMode) return;
+  wheelMode = next;
+  titleEl.dataset.mode = next;
+  pageDotsEl.style.opacity = next === 'move' ? '1' : '0';
+
+  hintEl.innerHTML = HINTS[next];
+  gsap.fromTo(hintEl, { opacity: 0 }, { opacity: 0.85, duration: 0.5 });
+  gsap.to(hintEl, { opacity: 0, duration: 1.0, delay: 4.0 });
+}
+titleEl.addEventListener('click', () => setMode(wheelMode === 'light' ? 'move' : 'light'));
+
+function goToPage(next) {
+  next = Math.max(0, Math.min(PAGES.length - 1, next));
+  if (next === currentPage || pageLocked) return;
+  pageLocked = true;
+
+  const from = PAGES[currentPage];
+  const to = PAGES[next];
+  currentPage = next;
+
+  // 배경 보간 준비
+  bgFromTop.set(from.top); bgToTop.set(to.top);
+  bgFromBottom.set(from.bottom); bgToBottom.set(to.bottom);
+  bgLerp.t = 0;
+
+  const dur = REDUCED_MOTION ? 0.01 : 1.1;
+
+  gsap.to(bgLerp, { t: 1, duration: dur, ease: 'power2.inOut' });
+  gsap.to(view, {
+    dolly: to.dolly, dim: to.dolly, duration: dur, ease: 'power2.inOut',
+    onComplete: () => { pageLocked = false; },
+  });
+
+  // 오버레이 교체
+  pageLayers.forEach(layer => {
+    const idx = Number(layer.dataset.page);
+    const on = idx === next;
+    gsap.to(layer, {
+      opacity: on ? 1 : 0,
+      y: on ? 0 : 18,
+      duration: dur * 0.8,
+      delay: on ? dur * 0.35 : 0,
+      ease: 'power2.out',
+    });
+  });
+  gsap.to(titleEl, { opacity: next === 0 ? 1 : 0.28, duration: dur * 0.8 });
+
+  dotEls.forEach((d, i) => d.dataset.on = String(i === next));
+  history.replaceState(null, '', location.pathname + to.hash);
+}
+
+// 해시로 직접 진입한 경우
+(function initFromHash() {
+  const idx = PAGES.findIndex(p => p.hash && p.hash === location.hash);
+  if (idx > 0) {
+    setMode('move');
+    currentPage = idx;
+    view.dolly = view.dim = 1;
+    bgTop.set(PAGES[idx].top); bgBottom.set(PAGES[idx].bottom);
+    paintBackground();
+    bgLerp.t = 1;
+    bgToTop.set(PAGES[idx].top); bgToBottom.set(PAGES[idx].bottom);
+    bgFromTop.copy(bgToTop); bgFromBottom.copy(bgToBottom);
+    pageLayers.forEach(l => { if (Number(l.dataset.page) === idx) gsap.set(l, { opacity: 1 }); });
+    dotEls.forEach((d, i) => d.dataset.on = String(i === idx));
+  }
+})();
+
+/* =========================================================
+   8. 입력
+   ========================================================= */
+const raycaster = new THREE.Raycaster();
+const magnetPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const magnetWorld = new THREE.Vector3(0, 999, 0);
+const ndc = new THREE.Vector2(0, 999);
+let magnetActive = false;
+let lastMoveTime = performance.now();
+
+function updatePointer(clientX, clientY) {
+  ndc.x = (clientX / innerWidth) * 2 - 1;
+  ndc.y = -(clientY / innerHeight) * 2 + 1;
+  magnetActive = true;
+  lastMoveTime = performance.now();
+  wakeIdle();
+}
+window.addEventListener('pointermove', (e) => updatePointer(e.clientX, e.clientY), { passive: true });
+window.addEventListener('pointerleave', () => { magnetActive = false; });
+window.addEventListener('pointerdown', (e) => updatePointer(e.clientX, e.clientY), { passive: true });
+
+let glowLevel = 0.12;
+let wheelAcc = 0;
+const WHEEL_THRESHOLD = 140;   // 이동 모드에서 한 페이지 넘기는 데 필요한 휠 누적량
+
+window.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  lastMoveTime = performance.now();
+  wakeIdle();
+
+  if (wheelMode === 'light') {
+    glowLevel = Math.max(0, Math.min(1, glowLevel + (e.deltaY > 0 ? 1 : -1) * 0.045));
+    return;
+  }
+
+  if (pageLocked) return;
+  wheelAcc += e.deltaY;
+  if (wheelAcc > WHEEL_THRESHOLD) { wheelAcc = 0; goToPage(currentPage + 1); }
+  else if (wheelAcc < -WHEEL_THRESHOLD) { wheelAcc = 0; goToPage(currentPage - 1); }
+}, { passive: false });
+
+// 이동 모드에서 방향키도 허용
+window.addEventListener('keydown', (e) => {
+  if (wheelMode !== 'move') return;
+  if (e.key === 'ArrowDown' || e.key === 'PageDown') goToPage(currentPage + 1);
+  if (e.key === 'ArrowUp' || e.key === 'PageUp') goToPage(currentPage - 1);
+});
+
+/* =========================================================
+   9. 오버레이 진입 연출
+   ========================================================= */
+if (REDUCED_MOTION) {
+  gsap.set(titleEl, { opacity: 1, filter: 'blur(0px)', clipPath: 'inset(0 0% 0 0)' });
+  gsap.to(hintEl, { opacity: 0.85, duration: 0.6, delay: 0.4 });
+  gsap.to(hintEl, { opacity: 0, duration: 1, delay: 4.5 });
+} else {
+  const tl = gsap.timeline({ delay: 0.3 });
+  tl.to(titleEl, { opacity: 1, duration: 0.3, ease: 'power1.out' }, 0)
+    .to(titleEl, { clipPath: 'inset(0 0% 0 0)', duration: 1.5, ease: 'power2.out' }, 0)
+    .to(titleEl, { filter: 'blur(0px)', duration: 1.7, ease: 'power3.out' }, 0.05);
+  gsap.to(hintEl, { opacity: 0.85, duration: 0.6, delay: 1.1 });
+  gsap.to(hintEl, { opacity: 0, duration: 1.2, delay: 5.5 });
+}
+
+let idleFaded = false;
+function wakeIdle() {
+  if (idleFaded) {
+    idleFaded = false;
+    gsap.to(titleEl, { opacity: 1, duration: 0.8 });
+  }
+}
+setInterval(() => {
+  if (!idleFaded && performance.now() - lastMoveTime > 5000) {
+    idleFaded = true;
+    gsap.to(titleEl, { opacity: 0, duration: 1.4 });
+  }
+}, 400);
+
+/* =========================================================
+   10. 후처리
+   ========================================================= */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(innerWidth * PERF.bloomScale, innerHeight * PERF.bloomScale),
+  0.4, PERF.bloomRadius, 0.32
+);
+composer.addPass(bloomPass);
+
+/* =========================================================
+   11. 프레이밍
+   ========================================================= */
+const FRAME_MARGIN = { mobile: 1.05, tablet: 1.12, desktop: 1.2 };
+let baseDist = 6;
+
+function computeBaseDist() {
+  const aspect = innerWidth / innerHeight;
+  const vFov = (camera.fov * Math.PI) / 180;
+  const boundingRadius = 1.78;
+  const margin = FRAME_MARGIN[getTier()];
+  let dist = (boundingRadius * margin) / Math.sin(vFov / 2);
+  if (aspect < 0.85) {
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const distW = (0.95 * margin) / Math.sin(hFov / 2);
+    dist = Math.max(dist, distW);
+  }
+  return dist;
+}
+
+function applyCamera() {
+  camera.position.set(0, 0.05, baseDist * (1 + view.dolly * 0.28));
+  camera.lookAt(0, 0.05 + view.dolly * 0.95, 0);
+}
+
+function onResize() {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  bloomPass.setSize(innerWidth * PERF.bloomScale, innerHeight * PERF.bloomScale);
+  baseDist = computeBaseDist();
+  applyCamera();
+}
+addEventListener('resize', onResize);
+onResize();
+
+/* =========================================================
+   12. 메인 루프
+   ========================================================= */
+const GRAVITY = -1.15;
+const MAGNET_RADIUS = 1.4;
+const WAKE_RADIUS = 0.5;
+const MAGNET_STRENGTH = 2.3;
+
+function clampToGlass(i) {
+  const y = pos[i * 3 + 1];
+  const rMax = glassRadius(y) * SAND_R;
+  const x = pos[i * 3], z = pos[i * 3 + 2];
+  const r = Math.hypot(x, z);
+  if (r > rMax && r > 1e-5) {
+    const s = rMax / r;
+    pos[i * 3] = x * s;
+    pos[i * 3 + 2] = z * s;
+    vel[i * 3] *= 0.4;
+    vel[i * 3 + 2] *= 0.4;
+  }
+  if (y < BOTTOM_TIP_Y + 0.02) { pos[i * 3 + 1] = BOTTOM_TIP_Y + 0.02; vel[i * 3 + 1] = 0; }
+  if (y > TOP_TIP_Y - 0.02) { pos[i * 3 + 1] = TOP_TIP_Y - 0.02; vel[i * 3 + 1] = 0; }
+}
+
+const clock = new THREE.Clock();
+
+function animate() {
+  const dt = Math.min(clock.getDelta(), 1 / 30);
+  const t = clock.elapsedTime;
+
+  // 배경 보간 — 전환 중일 때만 다시 그린다
+  if (bgLerp.t < 1) {
+    bgTop.copy(bgFromTop).lerp(bgToTop, bgLerp.t);
+    bgBottom.copy(bgFromBottom).lerp(bgToBottom, bgLerp.t);
+    paintBackground();
+  }
+  applyCamera();
+
+  // 커서 → 월드 좌표
+  raycaster.setFromCamera(ndc, camera);
+  const magnetHit = raycaster.ray.intersectPlane(magnetPlane, magnetWorld);
+  if (!magnetHit) magnetWorld.set(0, 999, 0);
+  const magnetOn = magnetActive && !!magnetHit;
+
+  trickleAcc += dt * FLOW_RATE;
+  while (trickleAcc >= 1 && topRemainingCount > 0) { tryReleaseTop(); trickleAcc -= 1; }
+
+  const magnetSq = MAGNET_RADIUS * MAGNET_RADIUS;
+  const wakeSq = WAKE_RADIUS * WAKE_RADIUS;
+
+  for (let i = 0; i < N; i++) {
+    const ix = i * 3, iy = ix + 1, iz = ix + 2;
+
+    if (resting[i]) {
+      if (magnetOn) {
+        const dx = magnetWorld.x - pos[ix], dy = magnetWorld.y - pos[iy], dz = magnetWorld.z - pos[iz];
+        if (dx * dx + dy * dy + dz * dz < wakeSq) resting[i] = 0;
+      }
+      continue;
+    }
+
+    let vx = vel[ix], vy = vel[iy], vz = vel[iz];
+    vy += GRAVITY * dt;
+
+    if (magnetOn) {
+      const dx = magnetWorld.x - pos[ix], dy = magnetWorld.y - pos[iy], dz = magnetWorld.z - pos[iz];
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (distSq < magnetSq) {
+        const dist = Math.sqrt(distSq) + 0.0001;
+        const force = MAGNET_STRENGTH / dist;
+        vx += (dx / dist) * force * dt;
+        vy += (dy / dist) * force * dt;
+        vz += (dz / dist) * force * dt;
+      }
+    }
+
+    const damp = Math.max(0, 1 - 3.2 * dt);
+    vx *= damp; vy *= damp; vz *= damp;
+
+    pos[ix] += vx * dt;
+    pos[iy] += vy * dt;
+    pos[iz] += vz * dt;
+    vel[ix] = vx; vel[iy] = vy; vel[iz] = vz;
+
+    clampToGlass(i);
+
+    if (pos[iy] < NECK_Y && vy <= 0 && pos[iy] <= settleThresholdY) settleToBottom(i);
+
+    if (Math.random() < 0.02 && pos[iy] < NECK_Y + 0.3 && pos[iy] > BOTTOM_TIP_Y + 0.3) {
+      spawnTrail(pos[ix], pos[iy], pos[iz]);
+    }
+  }
+  sandPosAttr.needsUpdate = true;
+
+  // 페이지가 넘어가면 모래시계는 뒤로 물러나며 흐려진다
+  const dimF = 1 - view.dim * 0.55;
+  sandMat.opacity = dimF;
+  setGlassDim(1 - view.dim * 0.35);
+
+  // 발광 파티클
+  const visibleGlow = Math.round(GLOW_COUNT * glowLevel);
+  for (let i = 0; i < GLOW_COUNT; i++) {
+    glowPos[i * 3 + 1] = glowBaseY[i] + Math.sin(t * 0.35 + glowPhase[i]) * 0.05;
+    const target = i < visibleGlow ? (0.35 + 0.5 * glowLevel) * dimF : 0;
+    glowAlphaAttr.array[i] += (target - glowAlphaAttr.array[i]) * 0.05;
+  }
+  glowPosAttr.needsUpdate = true;
+  glowAlphaAttr.needsUpdate = true;
+
+  // 트레일
+  for (let i = 0; i < TRAIL_COUNT; i++) {
+    if (trailAge[i] > trailMax[i]) { trailAlphaAttr.array[i] = 0; continue; }
+    trailAge[i] += dt;
+    trailPos[i * 3 + 1] += trailVy[i] * dt;
+    const lifeT = trailAge[i] / trailMax[i];
+    trailAlphaAttr.array[i] = (1 - lifeT) * 0.8 * dimF;
+    trailSizeAttr.array[i] = trailSize[i] * (1 - lifeT * 0.6);
+  }
+  trailPosAttr.needsUpdate = true;
+  trailAlphaAttr.needsUpdate = true;
+  trailSizeAttr.needsUpdate = true;
+
+  // 자석 하이라이트
+  const showHalo = magnetOn
+    && Math.hypot(magnetWorld.x, magnetWorld.z) < 1.9
+    && magnetWorld.y > BOTTOM_TIP_Y && magnetWorld.y < TOP_TIP_Y;
+  haloPosAttr.array[0] = magnetWorld.x;
+  haloPosAttr.array[1] = magnetWorld.y;
+  haloPosAttr.array[2] = magnetWorld.z;
+  haloAlphaAttr.array[0] += ((showHalo ? 0.6 * dimF : 0) - haloAlphaAttr.array[0]) * 0.15;
+  haloPosAttr.needsUpdate = true;
+  haloAlphaAttr.needsUpdate = true;
+
+  bloomPass.strength = (0.28 + glowLevel * 0.85) * dimF;
+
+  if (!REDUCED_MOTION) {
+    const spin = Math.sin(t * 0.08) * 0.05;
+    glassMesh.rotation.y = spin;
+    sandPoints.rotation.y = spin;
+    glowPoints.rotation.y = spin * 0.6;
+  }
+
+  composer.render();
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

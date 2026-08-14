@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>모래시계</title>
+
+<!-- Tailwind (utility layout only — the scene itself is plain WebGL) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // 3개 기준 화면: 모바일 375 / 태블릿 768 / 데스크탑 1440
+  tailwind.config = {
+    theme: {
+      screens: {
+        tablet: '768px',
+        desktop: '1440px',
+      },
+    },
+  };
+</script>
+
+<!-- 힌트 텍스트용 얇은 산세리프 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400&display=swap" rel="stylesheet">
+
+<!-- GSAP: 클래식 스크립트로 먼저 로드해 모듈 스크립트에서 전역으로 사용 -->
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<style>
+  @font-face{
+    font-family:'ChosunGs';
+    src:url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_20-04@1.0/ChosunGs.woff') format('woff');
+    font-weight:normal;
+    font-style:normal;
+    font-display:swap;
+  }
+
+  :root{
+    --bg-bottom:#0B1220;
+    --bg-top:#152d57;
+    --text:#a1b88d;
+    --glow:#d5e1f5;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    overflow:hidden;
+    overscroll-behavior:none;
+    background:var(--bg-bottom);
+  }
+  /* [FIX 2] canvas는 replaced element라 width/height를 명시하지 않으면
+     inset:0을 무시하고 고유 크기(300x150)로 그려진다. 명시적으로 못 박아 둔다. */
+  #scene{
+    position:fixed;
+    inset:0;
+    width:100%;
+    height:100%;
+    display:block;
+    touch-action:none;
+  }
+  .title-face{
+    font-family:'ChosunGs','Noto Sans KR',sans-serif;
+  }
+  .hint-face{
+    font-family:'Noto Sans KR',sans-serif;
+  }
+  /* 종이결 텍스처 — 유리 표면이 지나치게 매끈한 CG로 보이지 않도록 아주 낮은 강도의 그레인 */
+  #grain{
+    position:fixed;
+    inset:0;
+    z-index:5;
+    pointer-events:none;
+    opacity:.05;
+    mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+  @media (prefers-reduced-motion:reduce){
+    .title-init{opacity:1 !important;filter:none !important;clip-path:inset(0 0% 0 0) !important;}
+  }
+</style>
+</head>
+<body class="text-[--text]">
+
+<canvas id="scene"></canvas>
+<div id="grain"></div>
+
+<!-- 오버레이 UI: 타이틀 + 힌트. 그 외 없음 -->
+<div id="title"
+     class="title-face title-init fixed top-5 left-5 tablet:top-7 tablet:left-7 desktop:top-8 desktop:left-8 z-10 text-base tablet:text-lg desktop:text-xl tracking-wide select-none"
+     style="color:var(--text); opacity:0; clip-path:inset(0 100% 0 0); filter:blur(10px);">
+  모래시계
+</div>
+
+<p id="hint"
+   class="hint-face fixed bottom-6 tablet:bottom-8 desktop:bottom-10 left-1/2 -translate-x-1/2 z-10 w-[86vw] tablet:w-auto text-[10px] tablet:text-[11px] desktop:text-xs font-light tracking-[0.18em] tablet:tracking-[0.32em] desktop:tracking-[0.35em] text-center select-none tablet:whitespace-nowrap"
+   style="color:var(--text); opacity:0;">
+  가까이 다가가면 모래가 끌려옵니다 &nbsp;·&nbsp; 휠로 빛을 밝혀보세요
+</p>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* =========================================================
+   0. 성능 티어 — 화면 크기·입력 방식에 따라 입자 수 조정 (L-8)
+   ========================================================= */
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// 3개 기준 화면: 모바일 375 / 태블릿 768 / 데스크탑 1440
+function getTier() {
+  if (innerWidth < 768) return 'mobile';
+  if (innerWidth < 1440) return 'tablet';
+  return 'desktop';
+}
+const TIER = getTier();
+const COARSE = matchMedia('(pointer:coarse)').matches;
+const WEAK_HW = (navigator.hardwareConcurrency || 4) <= 4;
+const DOWNSHIFT = (COARSE || WEAK_HW) ? 0.7 : 1; // 저사양 폴백 (L-8)
+
+const PARTICLE_BASE = {
+  mobile:  { sand: 1200, glow: 160, trail: 50 },
+  tablet:  { sand: 2200, glow: 320, trail: 100 },
+  desktop: { sand: 3200, glow: 480, trail: 150 },
+}[TIER];
+
+const SAND_COUNT  = Math.round(PARTICLE_BASE.sand * DOWNSHIFT);
+const GLOW_COUNT  = Math.round(PARTICLE_BASE.glow * DOWNSHIFT);
+const TRAIL_COUNT = Math.round(PARTICLE_BASE.trail * DOWNSHIFT);
+
+/* =========================================================
+   1. 유리 프로파일 — 오브젝트 좌표계 (x=반지름, y=높이)
+   ========================================================= */
+const PROFILE = [
+  [-1.62, 0.001], [-1.58, 0.62], [-1.30, 0.92], [-0.85, 0.92], [-0.40, 0.55],
+  [-0.10, 0.16], [0, 0.10], [0.10, 0.16], [0.40, 0.55], [0.85, 0.92],
+  [1.30, 0.92], [1.58, 0.62], [1.62, 0.001],
+];
+const BOTTOM_TIP_Y = PROFILE[0][0];
+const TOP_TIP_Y = PROFILE[PROFILE.length - 1][0];
+const NECK_Y = 0;
+const SAND_R = 0.86; // 유리 내벽 대비 모래가 차지하는 비율
+
+function glassRadius(y) {
+  y = Math.max(BOTTOM_TIP_Y, Math.min(TOP_TIP_Y, y));
+  for (let k = 0; k < PROFILE.length - 1; k++) {
+    const [y0, r0] = PROFILE[k], [y1, r1] = PROFILE[k + 1];
+    if (y >= y0 && y <= y1) {
+      const t = (y - y0) / (y1 - y0 || 1);
+      return r0 + (r1 - r0) * t;
+    }
+  }
+  return PROFILE[PROFILE.length - 1][1];
+}
+
+function buildVolumeLookup(yFrom, yTo, steps = 160) {
+  const heights = new Float32Array(steps + 1);
+  const cumVol = new Float32Array(steps + 1);
+  const dy = (yTo - yFrom) / steps;
+  let acc = 0;
+  for (let i = 0; i <= steps; i++) {
+    const y = yFrom + dy * i;
+    heights[i] = y;
+    if (i > 0) {
+      const rPrev = glassRadius(heights[i - 1]) * SAND_R;
+      const rCur = glassRadius(y) * SAND_R;
+      const rAvg = (rPrev + rCur) / 2;
+      acc += Math.PI * rAvg * rAvg * Math.abs(dy);
+    }
+    cumVol[i] = acc;
+  }
+  return { heights, cumVol, total: acc };
+}
+function rankToHeight(table, fraction) {
+  const target = table.total * Math.max(0, Math.min(1, fraction));
+  let lo = 0, hi = table.cumVol.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (table.cumVol[mid] < target) lo = mid + 1; else hi = mid;
+  }
+  return table.heights[lo];
+}
+
+const topTable = buildVolumeLookup(NECK_Y + 0.03, TOP_TIP_Y - 0.02);
+const bottomTable = buildVolumeLookup(BOTTOM_TIP_Y + 0.02, NECK_Y - 0.03);
+
+/* =========================================================
+   2. 렌더러 · 씬 · 카메라
+   ========================================================= */
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(36, innerWidth / innerHeight, 0.1, 100);
+
+// 배경 그라데이션 — 심연(#0B1220) → 새벽(#152d57), WebGL 안에서 직접 렌더 (블룸과 합성 이슈 없이)
+function makeGradientTexture(bottomHex, topHex) {
+  const c = document.createElement('canvas');
+  c.width = 2; c.height = 512;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 512, 0, 0);
+  g.addColorStop(0, bottomHex);
+  g.addColorStop(1, topHex);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 2, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+scene.background = makeGradientTexture('#0B1220', '#152d57');
+
+// 환경 조명 — 물리 기반 유리 반사를 위한 간이 룸 환경
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.045).texture;
+pmrem.dispose();
+
+scene.add(new THREE.AmbientLight(0x8fa8d0, 0.32));
+const keyLight = new THREE.DirectionalLight(0xeaf2ff, 1.2);
+keyLight.position.set(3, 4, 3);
+scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0x6c9fd9, 0.55);
+rimLight.position.set(-3, -2, -4);
+scene.add(rimLight);
+
+/* =========================================================
+   3. 모래시계 유리
+   ========================================================= */
+const latheGeo = new THREE.LatheGeometry(
+  PROFILE.map(([y, r]) => new THREE.Vector2(r, y)),
+  56
+);
+const glassMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff,
+  metalness: 0,
+  roughness: 0.02,
+  transmission: 1,
+  thickness: 0.12,
+  ior: 1.3,
+  attenuationColor: new THREE.Color('#eef4ff'),
+  attenuationDistance: 3.5,
+  clearcoat: 0.15,
+  clearcoatRoughness: 0.35,
+  envMapIntensity: 0.4,
+  specularIntensity: 0.35,
+  side: THREE.DoubleSide,
+  transparent: true,
+  depthWrite: false,
+});
+const glassMesh = new THREE.Mesh(latheGeo, glassMat);
+scene.add(glassMesh);
+
+/* =========================================================
+   4. 모래 입자 — 철가루. 물리 엔진 없이 매 프레임 커스텀 연산
+   ========================================================= */
+const N = SAND_COUNT;
+const pos = new Float32Array(N * 3);
+const vel = new Float32Array(N * 3);
+const resting = new Uint8Array(N);   // 1 = 정지, 0 = 자유낙하/자석에 끌림
+const pile = new Uint8Array(N);      // resting일 때만 의미: 0=위쪽 더미, 1=아래쪽 더미
+const rankOwner = new Int32Array(N); // rank -> particle index (위쪽 더미 배출 순서용)
+
+(function initSand() {
+  const ranks = Array.from({ length: N }, (_, i) => i);
+  for (let i = ranks.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [ranks[i], ranks[j]] = [ranks[j], ranks[i]];
+  }
+  for (let i = 0; i < N; i++) {
+    const rank = ranks[i];
+    rankOwner[rank] = i;
+    const y = rankToHeight(topTable, rank / N);
+    const rMax = glassRadius(y) * SAND_R;
+    const r = rMax * Math.sqrt(Math.random());
+    const theta = Math.random() * Math.PI * 2;
+    pos[i * 3] = r * Math.cos(theta);
+    pos[i * 3 + 1] = y;
+    pos[i * 3 + 2] = r * Math.sin(theta);
+    resting[i] = 1;
+    pile[i] = 0;
+  }
+})();
+
+let topRemainingCount = N;
+let bottomCount = 0;
+
+function makeDotTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.85)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(32, 32, 32, 0, Math.PI * 2); ctx.fill();
+  return new THREE.CanvasTexture(c);
+}
+const dotTex = makeDotTexture();
+
+const sandGeo = new THREE.BufferGeometry();
+const sandPosAttr = new THREE.BufferAttribute(pos, 3);
+sandPosAttr.setUsage(THREE.DynamicDrawUsage);
+sandGeo.setAttribute('position', sandPosAttr);
+const sandMat = new THREE.PointsMaterial({
+  color: new THREE.Color('#6cd5d9'),
+  size: 0.05,
+  sizeAttenuation: true,
+  map: dotTex,
+  alphaTest: 0.35,
+  transparent: true,
+  depthWrite: true,
+});
+const sandPoints = new THREE.Points(sandGeo, sandMat);
+scene.add(sandPoints);
+
+function settleToBottom(i) {
+  const rank = bottomCount;
+  bottomCount = Math.min(bottomCount + 1, N);
+  const targetY = rankToHeight(bottomTable, rank / N);
+  const curR = Math.hypot(pos[i * 3], pos[i * 3 + 2]);
+  const maxR = glassRadius(targetY) * SAND_R;
+  const r = Math.min(curR, maxR);
+  const theta = Math.atan2(pos[i * 3 + 2], pos[i * 3]);
+  pos[i * 3] = r * Math.cos(theta);
+  pos[i * 3 + 1] = targetY;
+  pos[i * 3 + 2] = r * Math.sin(theta);
+  vel[i * 3] = vel[i * 3 + 1] = vel[i * 3 + 2] = 0;
+  resting[i] = 1;
+  pile[i] = 1;
+}
+
+function tryReleaseTop() {
+  while (topRemainingCount > 0) {
+    const idx = rankOwner[topRemainingCount - 1];
+    if (resting[idx] === 0) { topRemainingCount--; continue; }
+    resting[idx] = 0;
+    vel[idx * 3 + 1] = -0.05;
+    topRemainingCount--;
+    return;
+  }
+}
+
+const FLOW_RATE = N / 300; // 전체가 다 떨어지는 데 약 5분
+let trickleAcc = 0;
+
+/* =========================================================
+   5. 발광 파티클 (다이아몬드 더스트) — 휠로 밀도·휘도 제어 (L-5)
+      + 낙하 트레일 모트 (L-6)
+   ========================================================= */
+const glowVertex = `
+  attribute float aSize;
+  attribute float aAlpha;
+  varying float vAlpha;
+  void main(){
+    vAlpha = aAlpha;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = aSize * (280.0 / -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const glowFragment = `
+  precision mediump float;
+  varying float vAlpha;
+  uniform vec3 uColor;
+  void main(){
+    float d = length(gl_PointCoord - 0.5);
+    float a = smoothstep(0.5, 0.0, d) * vAlpha;
+    if(a <= 0.002) discard;
+    gl_FragColor = vec4(uColor, a);
+  }
+`;
+
+function makeGlowMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color('#d5e1f5') } },
+    vertexShader: glowVertex,
+    fragmentShader: glowFragment,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+}
+
+// 5-1. 앰비언트 발광 (다이아몬드 더스트)
+const glowPos = new Float32Array(GLOW_COUNT * 3);
+const glowBaseY = new Float32Array(GLOW_COUNT);
+const glowPhase = new Float32Array(GLOW_COUNT);
+const glowSize = new Float32Array(GLOW_COUNT);
+const glowAlpha = new Float32Array(GLOW_COUNT);
+for (let i = 0; i < GLOW_COUNT; i++) {
+  const y = BOTTOM_TIP_Y + Math.random() * (TOP_TIP_Y - BOTTOM_TIP_Y);
+  const rMax = Math.max(glassRadius(y) * 1.15, 0.2);
+  const r = rMax * Math.sqrt(Math.random());
+  const theta = Math.random() * Math.PI * 2;
+  glowPos[i * 3] = r * Math.cos(theta);
+  glowPos[i * 3 + 1] = y;
+  glowPos[i * 3 + 2] = r * Math.sin(theta);
+  glowBaseY[i] = y;
+  glowPhase[i] = Math.random() * Math.PI * 2;
+  glowSize[i] = 0.05 + Math.random() * 0.09;
+  glowAlpha[i] = 0;
+}
+const glowGeo = new THREE.BufferGeometry();
+glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3).setUsage(THREE.DynamicDrawUsage));
+glowGeo.setAttribute('aSize', new THREE.BufferAttribute(glowSize, 1));
+glowGeo.setAttribute('aAlpha', new THREE.BufferAttribute(glowAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+const glowPoints = new THREE.Points(glowGeo, makeGlowMaterial());
+scene.add(glowPoints);
+
+// 5-2. 낙하 트레일 모트
+const trailPos = new Float32Array(TRAIL_COUNT * 3);
+const trailAlpha = new Float32Array(TRAIL_COUNT);
+const trailSize = new Float32Array(TRAIL_COUNT);
+const trailAge = new Float32Array(TRAIL_COUNT);
+const trailMax = new Float32Array(TRAIL_COUNT);
+const trailVy = new Float32Array(TRAIL_COUNT);
+let trailCursor = 0;
+for (let i = 0; i < TRAIL_COUNT; i++) { trailAge[i] = 999; }
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3).setUsage(THREE.DynamicDrawUsage));
+trailGeo.setAttribute('aSize', new THREE.BufferAttribute(trailSize, 1).setUsage(THREE.DynamicDrawUsage));
+trailGeo.setAttribute('aAlpha', new THREE.BufferAttribute(trailAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+const trailPoints = new THREE.Points(trailGeo, makeGlowMaterial());
+scene.add(trailPoints);
+
+function spawnTrail(x, y, z) {
+  const i = trailCursor;
+  trailCursor = (trailCursor + 1) % TRAIL_COUNT;
+  trailPos[i * 3] = x + (Math.random() - 0.5) * 0.05;
+  trailPos[i * 3 + 1] = y;
+  trailPos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.05;
+  trailAge[i] = 0;
+  trailMax[i] = 0.5 + Math.random() * 0.4;
+  trailSize[i] = 0.03 + Math.random() * 0.03;
+  trailVy[i] = -0.15 - Math.random() * 0.1;
+}
+
+/* =========================================================
+   6. 자석 하이라이트 — 커서가 닿는 곳 = 빛나는 곳
+   ========================================================= */
+const haloMat = makeGlowMaterial();
+haloMat.uniforms.uColor.value = new THREE.Color('#d5e1f5');
+const haloGeo = new THREE.BufferGeometry();
+haloGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+haloGeo.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array([0]), 1).setUsage(THREE.DynamicDrawUsage));
+haloGeo.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array([0]), 1).setUsage(THREE.DynamicDrawUsage));
+const halo = new THREE.Points(haloGeo, haloMat);
+scene.add(halo);
+
+/* =========================================================
+   7. 입력 — 커서(자석) · 휠(발광량 다이얼)
+   ========================================================= */
+const raycaster = new THREE.Raycaster();
+const magnetPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const magnetWorld = new THREE.Vector3(0, 999, 0);
+const ndc = new THREE.Vector2(0, 999);
+let magnetActive = false;
+let lastMoveTime = performance.now();
+
+function updatePointer(clientX, clientY) {
+  ndc.x = (clientX / innerWidth) * 2 - 1;
+  ndc.y = -(clientY / innerHeight) * 2 + 1;
+  magnetActive = true;
+  lastMoveTime = performance.now();
+  wakeIdle();
+}
+window.addEventListener('pointermove', (e) => updatePointer(e.clientX, e.clientY), { passive: true });
+window.addEventListener('pointerleave', () => { magnetActive = false; });
+window.addEventListener('pointerdown', (e) => updatePointer(e.clientX, e.clientY), { passive: true });
+
+let glowLevel = 0.12; // 기본은 캄캄함에 가깝게, 휠로 밝혀나간다
+window.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  glowLevel = Math.max(0, Math.min(1, glowLevel + (e.deltaY > 0 ? 1 : -1) * 0.045));
+}, { passive: false });
+
+/* =========================================================
+   8. 오버레이 UI — 진입 연출 · 유휴 시 소거
+   ========================================================= */
+const titleEl = document.getElementById('title');
+const hintEl = document.getElementById('hint');
+
+if (REDUCED_MOTION) {
+  gsap.set(titleEl, { opacity: 1, filter: 'blur(0px)', clipPath: 'inset(0 0% 0 0)' });
+  gsap.to(hintEl, { opacity: 0.85, duration: 0.6, delay: 0.4 });
+  gsap.to(hintEl, { opacity: 0, duration: 1, delay: 4.5 });
+} else {
+  const tl = gsap.timeline({ delay: 0.3 });
+  tl.to(titleEl, { opacity: 1, duration: 0.3, ease: 'power1.out' }, 0)
+    .to(titleEl, { clipPath: 'inset(0 0% 0 0)', duration: 1.5, ease: 'power2.out' }, 0)
+    .to(titleEl, { filter: 'blur(0px)', duration: 1.7, ease: 'power3.out' }, 0.05);
+  gsap.to(hintEl, { opacity: 0.85, duration: 0.6, delay: 1.1 });
+  gsap.to(hintEl, { opacity: 0, duration: 1.2, delay: 5.5 });
+}
+
+let idleFaded = false;
+function wakeIdle() {
+  if (idleFaded) {
+    idleFaded = false;
+    gsap.to(titleEl, { opacity: 1, duration: 0.8 });
+  }
+}
+setInterval(() => {
+  if (!idleFaded && performance.now() - lastMoveTime > 5000) {
+    idleFaded = true;
+    gsap.to(titleEl, { opacity: 0, duration: 1.4 });
+  }
+}, 400);
+
+/* =========================================================
+   9. 후처리 — 블룸으로 발광의 번짐 표현
+   ========================================================= */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.4, 0.55, 0.32);
+composer.addPass(bloomPass);
+
+/* =========================================================
+   10. 프레이밍 — 아늑하고 밀도 있는 클로즈업 구도
+   ========================================================= */
+// 화면이 커질수록 아주 조금씩만 여백을 늘린다 — "아늑하고 밀도 있는" 구도는 세 화면 모두 유지
+const FRAME_MARGIN = { mobile: 1.05, tablet: 1.12, desktop: 1.2 };
+
+function fitCamera() {
+  const aspect = innerWidth / innerHeight;
+  camera.aspect = aspect;
+  const vFov = (camera.fov * Math.PI) / 180;
+  const boundingRadius = 1.78;
+  const margin = FRAME_MARGIN[getTier()];
+  let dist = (boundingRadius * margin) / Math.sin(vFov / 2);
+  if (aspect < 0.85) {
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const distW = (0.95 * margin) / Math.sin(hFov / 2);
+    dist = Math.max(dist, distW);
+  }
+  camera.position.set(0, 0.05, dist);
+  camera.lookAt(0, 0.05, 0);
+  camera.updateProjectionMatrix();
+}
+
+function onResize() {
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  bloomPass.setSize(innerWidth, innerHeight);
+  fitCamera();
+}
+addEventListener('resize', onResize);
+
+// [FIX 1] three.js는 넘겨받은 canvas의 크기를 건드리지 않는다.
+// setSize를 초기화 시점에 반드시 한 번 호출해야 기본값 300x150에서 벗어난다.
+// (EffectComposer의 렌더타깃도 함께 맞춰야 하므로 fitCamera가 아닌 onResize를 부른다)
+onResize();
+
+/* =========================================================
+   11. 메인 루프 — 자석 인력 · 중력 · 벽 충돌은 전부 커스텀 연산
+   ========================================================= */
+const GRAVITY = -1.15;
+const MAGNET_RADIUS = 1.4;
+const WAKE_RADIUS = 0.5;
+const MAGNET_STRENGTH = 2.3;
+
+function clampToGlass(i) {
+  const y = pos[i * 3 + 1];
+  const rMax = glassRadius(y) * SAND_R;
+  const x = pos[i * 3], z = pos[i * 3 + 2];
+  const r = Math.hypot(x, z);
+  if (r > rMax && r > 1e-5) {
+    const s = rMax / r;
+    pos[i * 3] = x * s;
+    pos[i * 3 + 2] = z * s;
+    vel[i * 3] *= 0.4;
+    vel[i * 3 + 2] *= 0.4;
+  }
+  if (y < BOTTOM_TIP_Y + 0.02) { pos[i * 3 + 1] = BOTTOM_TIP_Y + 0.02; vel[i * 3 + 1] = 0; }
+  if (y > TOP_TIP_Y - 0.02) { pos[i * 3 + 1] = TOP_TIP_Y - 0.02; vel[i * 3 + 1] = 0; }
+}
+
+let clock = new THREE.Clock();
+
+function animate() {
+  const dt = Math.min(clock.getDelta(), 1 / 30);
+  const t = clock.elapsedTime;
+
+  // 커서 → 월드 좌표 (자석 위치)
+  // [FIX 3] intersectPlane은 실패 시 null을 반환할 뿐 target을 비우지 않는다.
+  // 반환값으로 판정하지 않으면 시선과 평면이 평행할 때 이전 프레임 좌표가 남는다.
+  raycaster.setFromCamera(ndc, camera);
+  const magnetHit = raycaster.ray.intersectPlane(magnetPlane, magnetWorld);
+  if (!magnetHit) magnetWorld.set(0, 999, 0);
+
+  // 위쪽 더미 → 흘러내림
+  trickleAcc += dt * FLOW_RATE;
+  while (trickleAcc >= 1 && topRemainingCount > 0) { tryReleaseTop(); trickleAcc -= 1; }
+
+  const magnetSq = MAGNET_RADIUS * MAGNET_RADIUS;
+  const wakeSq = WAKE_RADIUS * WAKE_RADIUS;
+
+  for (let i = 0; i < N; i++) {
+    const ix = i * 3, iy = ix + 1, iz = ix + 2;
+
+    if (resting[i]) {
+      if (magnetActive) {
+        const dx = magnetWorld.x - pos[ix], dy = magnetWorld.y - pos[iy], dz = magnetWorld.z - pos[iz];
+        if (dx * dx + dy * dy + dz * dz < wakeSq) {
+          resting[i] = 0;
+        }
+      }
+      continue;
+    }
+
+    let vx = vel[ix], vy = vel[iy], vz = vel[iz];
+    vy += GRAVITY * dt;
+
+    if (magnetActive) {
+      const dx = magnetWorld.x - pos[ix], dy = magnetWorld.y - pos[iy], dz = magnetWorld.z - pos[iz];
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (distSq < magnetSq) {
+        const dist = Math.sqrt(distSq) + 0.0001;
+        const force = MAGNET_STRENGTH / dist;
+        vx += (dx / dist) * force * dt;
+        vy += (dy / dist) * force * dt;
+        vz += (dz / dist) * force * dt;
+      }
+    }
+
+    const damp = Math.max(0, 1 - 3.2 * dt);
+    vx *= damp; vy *= damp; vz *= damp;
+
+    pos[ix] += vx * dt;
+    pos[iy] += vy * dt;
+    pos[iz] += vz * dt;
+    vel[ix] = vx; vel[iy] = vy; vel[iz] = vz;
+
+    clampToGlass(i);
+
+    if (pos[iy] < NECK_Y && vy <= 0) {
+      const thresholdY = rankToHeight(bottomTable, bottomCount / N);
+      if (pos[iy] <= thresholdY) settleToBottom(i);
+    }
+
+    if (Math.random() < 0.02 && pos[iy] < NECK_Y + 0.3 && pos[iy] > BOTTOM_TIP_Y + 0.3) {
+      spawnTrail(pos[ix], pos[iy], pos[iz]);
+    }
+  }
+  sandPosAttr.needsUpdate = true;
+
+  // 발광 파티클 — 휠로 조절된 glowLevel에 따라 밀도/휘도
+  const gAlphaAttr = glowGeo.getAttribute('aAlpha');
+  const visibleGlow = Math.round(GLOW_COUNT * glowLevel);
+  for (let i = 0; i < GLOW_COUNT; i++) {
+    const drift = Math.sin(t * 0.35 + glowPhase[i]) * 0.05;
+    glowPos[i * 3 + 1] = glowBaseY[i] + drift;
+    const target = i < visibleGlow ? (0.35 + 0.5 * glowLevel) : 0;
+    gAlphaAttr.array[i] += (target - gAlphaAttr.array[i]) * 0.05;
+  }
+  glowGeo.getAttribute('position').needsUpdate = true;
+  gAlphaAttr.needsUpdate = true;
+
+  // 트레일 모트
+  const tAlphaAttr = trailGeo.getAttribute('aAlpha');
+  const tSizeAttr = trailGeo.getAttribute('aSize');
+  const tPosAttr = trailGeo.getAttribute('position');
+  for (let i = 0; i < TRAIL_COUNT; i++) {
+    if (trailAge[i] > trailMax[i]) { tAlphaAttr.array[i] = 0; continue; }
+    trailAge[i] += dt;
+    trailPos[i * 3 + 1] += trailVy[i] * dt;
+    const lifeT = trailAge[i] / trailMax[i];
+    tAlphaAttr.array[i] = (1 - lifeT) * 0.8;
+    tSizeAttr.array[i] = trailSize[i] * (1 - lifeT * 0.6);
+  }
+  tPosAttr.needsUpdate = true;
+  tAlphaAttr.needsUpdate = true;
+  tSizeAttr.needsUpdate = true;
+
+  // 자석 하이라이트
+  const haloAlphaAttr = haloGeo.getAttribute('aAlpha');
+  const haloSizeAttr = haloGeo.getAttribute('aSize');
+  const haloPosAttr = haloGeo.getAttribute('position');
+  const showHalo = magnetActive && Math.hypot(magnetWorld.x, magnetWorld.z) < 1.9 && magnetWorld.y > BOTTOM_TIP_Y && magnetWorld.y < TOP_TIP_Y;
+  haloPosAttr.array[0] = magnetWorld.x;
+  haloPosAttr.array[1] = magnetWorld.y;
+  haloPosAttr.array[2] = magnetWorld.z;
+  haloAlphaAttr.array[0] += ((showHalo ? 0.6 : 0) - haloAlphaAttr.array[0]) * 0.15;
+  haloSizeAttr.array[0] = 0.5;
+  haloPosAttr.needsUpdate = true;
+  haloAlphaAttr.needsUpdate = true;
+  haloSizeAttr.needsUpdate = true;
+
+  // 블룸 강도 — 발광량 다이얼과 함께 은은히 살아남
+  bloomPass.strength = 0.28 + glowLevel * 0.85;
+
+  // 고요한 숨결 — 아주 미세한 유휴 회전 (물리감을 해치지 않는 선에서만)
+  if (!REDUCED_MOTION) {
+    glassMesh.rotation.y = Math.sin(t * 0.08) * 0.05;
+    sandPoints.rotation.y = glassMesh.rotation.y;
+    glowPoints.rotation.y = glassMesh.rotation.y * 0.6;
+  }
+
+  composer.render();
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
