@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>세계 날씨 검색</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: '#3E6AE1',
+          ink: '#171A20',
+          graphite: '#393C41',
+          pewter: '#5C5E62',
+          fog: '#8E8E8E',
+          ash: '#F4F4F4',
+          cloud: '#EEEEEE',
+          silver: '#D0D1D2',
+        },
+        fontFamily: {
+          sans: ['-apple-system', 'BlinkMacSystemFont', 'Pretendard', 'Noto Sans KR', 'system-ui', 'sans-serif'],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body { -webkit-tap-highlight-color: transparent; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { animation: spin 0.8s linear infinite; }
+</style>
+</head>
+<body class="bg-white text-ink font-sans antialiased min-h-screen">
+
+<div class="max-w-2xl mx-auto px-4 py-10 sm:py-16">
+
+  <header class="mb-8 sm:mb-10">
+    <h1 class="text-2xl sm:text-3xl font-medium text-ink">세계 날씨 검색</h1>
+    <p class="mt-1 text-sm text-pewter">도시 이름을 한글이나 영문으로 검색해보세요.</p>
+  </header>
+
+  <!-- 검색창 -->
+  <section class="relative">
+    <div class="relative">
+      <input
+        id="search-input"
+        type="text"
+        autocomplete="off"
+        aria-label="도시 이름 검색"
+        placeholder="예: 서울, Tokyo, New York"
+        class="w-full rounded [border-radius:4px] border border-silver bg-white px-4 py-3 text-base text-ink placeholder-fog outline-none transition-colors duration-200 focus:border-brand"
+      >
+      <button
+        id="search-clear"
+        type="button"
+        aria-label="검색어 지우기"
+        class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-fog hover:text-graphite transition-colors duration-200"
+      >✕</button>
+    </div>
+
+    <!-- 드롭다운 -->
+    <div
+      id="dropdown"
+      role="listbox"
+      aria-label="검색 결과"
+      class="hidden absolute z-10 mt-2 w-full rounded [border-radius:8px] border border-cloud bg-white overflow-hidden"
+    ></div>
+  </section>
+
+  <!-- 현재 날씨 카드 -->
+  <section id="current-weather-section" class="mt-8 sm:mt-10"></section>
+
+  <!-- 7일 예보 -->
+  <section id="forecast-section" class="mt-6 sm:mt-8"></section>
+
+  <!-- 즐겨찾기 -->
+  <section id="favorites-section" class="mt-10 sm:mt-14 hidden">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="flex items-baseline gap-2">
+        <h3 class="text-sm font-medium text-graphite">즐겨찾기</h3>
+        <span id="favorites-count" class="text-xs text-fog"></span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex rounded [border-radius:4px] border border-silver overflow-hidden" role="group" aria-label="기온 정렬">
+          <button id="sort-desc-btn" type="button" class="px-3 py-1.5 text-xs font-medium text-graphite hover:bg-ash transition-colors duration-150 border-r border-silver">기온 높은순</button>
+          <button id="sort-asc-btn" type="button" class="px-3 py-1.5 text-xs font-medium text-graphite hover:bg-ash transition-colors duration-150">기온 낮은순</button>
+        </div>
+        <button id="clear-only-toggle" type="button" role="switch" aria-checked="false" class="flex items-center gap-2 rounded [border-radius:4px] border border-silver px-3 py-1.5 text-xs font-medium text-graphite hover:bg-ash transition-colors duration-150">
+          <span id="clear-only-dot" class="inline-block h-2 w-2 rounded-full bg-silver transition-colors duration-150"></span>
+          맑은 곳만 보기
+        </button>
+      </div>
+    </div>
+    <div id="favorites-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+    <p id="favorites-empty" class="hidden text-sm text-fog px-1">조건에 맞는 즐겨찾기 도시가 없어요.</p>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
+  const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
+
+  const WEATHER_CODE_MAP = {
+    0:  { label: '맑음',               emoji: '☀️' },
+    1:  { label: '대체로 맑음',         emoji: '🌤️' },
+    2:  { label: '부분적으로 흐림',      emoji: '⛅' },
+    3:  { label: '흐림',               emoji: '☁️' },
+    45: { label: '안개',               emoji: '🌫️' },
+    48: { label: '서리 안개',           emoji: '🌫️' },
+    51: { label: '약한 이슬비',         emoji: '🌦️' },
+    53: { label: '보통 이슬비',         emoji: '🌦️' },
+    55: { label: '강한 이슬비',         emoji: '🌧️' },
+    56: { label: '약한 착빙성 이슬비',   emoji: '🌧️' },
+    57: { label: '강한 착빙성 이슬비',   emoji: '🌧️' },
+    61: { label: '약한 비',            emoji: '🌧️' },
+    63: { label: '보통 비',            emoji: '🌧️' },
+    65: { label: '강한 비',            emoji: '🌧️' },
+    66: { label: '약한 착빙성 비',      emoji: '🌧️' },
+    67: { label: '강한 착빙성 비',      emoji: '🌧️' },
+    71: { label: '약한 눈',            emoji: '🌨️' },
+    73: { label: '보통 눈',            emoji: '🌨️' },
+    75: { label: '강한 눈',            emoji: '❄️' },
+    77: { label: '싸락눈',             emoji: '❄️' },
+    80: { label: '약한 소나기',         emoji: '🌦️' },
+    81: { label: '보통 소나기',         emoji: '🌧️' },
+    82: { label: '강한 소나기',         emoji: '⛈️' },
+    85: { label: '약한 소낙눈',         emoji: '🌨️' },
+    86: { label: '강한 소낙눈',         emoji: '❄️' },
+    95: { label: '뇌우',               emoji: '⛈️' },
+    96: { label: '약한 우박 동반 뇌우',  emoji: '⛈️' },
+    99: { label: '강한 우박 동반 뇌우',  emoji: '⛈️' },
+  };
+
+  function weatherInfo(code) {
+    return WEATHER_CODE_MAP[code] || { label: '알 수 없음', emoji: '❓' };
+  }
+
+  const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+  function formatDayLabel(dateStr, index) {
+    if (index === 0) return '오늘';
+    const d = new Date(dateStr + 'T00:00:00');
+    return WEEKDAYS[d.getDay()] + '요일';
+  }
+
+  // Open-Meteo 지오코딩 API는 language=ko를 줘도 검색어 자체는 한글로 매칭하지 못하고
+  // 로마자/영문 이름으로만 검색되므로, 자주 찾는 도시의 한글명을 영문명으로 매핑해 재시도한다.
+  const KOREAN_CITY_NAME_MAP = {
+    '서울': 'Seoul', '부산': 'Busan', '인천': 'Incheon', '대구': 'Daegu',
+    '대전': 'Daejeon', '광주': 'Gwangju', '울산': 'Ulsan', '수원': 'Suwon',
+    '제주': 'Jeju', '춘천': 'Chuncheon', '전주': 'Jeonju', '포항': 'Pohang',
+    '창원': 'Changwon', '청주': 'Cheongju',
+    '도쿄': 'Tokyo', '오사카': 'Osaka', '교토': 'Kyoto', '삿포로': 'Sapporo',
+    '후쿠오카': 'Fukuoka', '나고야': 'Nagoya', '요코하마': 'Yokohama',
+    '베이징': 'Beijing', '상하이': 'Shanghai', '광저우': 'Guangzhou',
+    '선전': 'Shenzhen', '홍콩': 'Hong Kong', '마카오': 'Macau', '타이베이': 'Taipei',
+    '방콕': 'Bangkok', '싱가포르': 'Singapore', '자카르타': 'Jakarta',
+    '쿠알라룸푸르': 'Kuala Lumpur', '마닐라': 'Manila', '하노이': 'Hanoi',
+    '호치민': 'Ho Chi Minh City', '뉴델리': 'New Delhi', '뭄바이': 'Mumbai',
+    '두바이': 'Dubai', '이스탄불': 'Istanbul', '카이로': 'Cairo',
+    '뉴욕': 'New York', '로스앤젤레스': 'Los Angeles', '샌프란시스코': 'San Francisco',
+    '시카고': 'Chicago', '시애틀': 'Seattle', '라스베가스': 'Las Vegas',
+    '토론토': 'Toronto', '밴쿠버': 'Vancouver', '멕시코시티': 'Mexico City',
+    '런던': 'London', '파리': 'Paris', '베를린': 'Berlin', '뮌헨': 'Munich',
+    '로마': 'Rome', '밀라노': 'Milan', '마드리드': 'Madrid', '바르셀로나': 'Barcelona',
+    '암스테르담': 'Amsterdam', '프라하': 'Prague', '비엔나': 'Vienna',
+    '취리히': 'Zurich', '모스크바': 'Moscow', '상트페테르부르크': 'Saint Petersburg',
+    '시드니': 'Sydney', '멜버른': 'Melbourne', '오클랜드': 'Auckland',
+  };
+
+  function translateKoreanCityName(query) {
+    if (KOREAN_CITY_NAME_MAP[query]) return KOREAN_CITY_NAME_MAP[query];
+    const stripped = query.replace(/(특별자치시|특별자치도|광역시|특별시|자치시|자치도|시|도)$/, '');
+    return KOREAN_CITY_NAME_MAP[stripped] || null;
+  }
+
+  const searchInput = document.getElementById('search-input');
+  const searchClear = document.getElementById('search-clear');
+  const dropdown = document.getElementById('dropdown');
+  const currentSection = document.getElementById('current-weather-section');
+  const forecastSection = document.getElementById('forecast-section');
+
+  // 즐겨찾기: 도시 + 조회 당시 기온/날씨코드를 localStorage에 저장해 카드 그리드로 보여준다.
+  const FAVORITES_STORAGE_KEY = 'weather-app-favorites';
+
+  function loadFavorites() {
+    try {
+      const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function saveFavorites() {
+    try {
+      localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+    } catch (err) {
+      // 저장 실패(예: 프라이빗 모드) 시에도 화면 동작은 계속되도록 무시한다.
+    }
+  }
+
+  let favorites = loadFavorites();
+  let sortMode = 'none'; // 'none' | 'desc' | 'asc'
+  let onlyClear = false;
+
+  function favoriteId(city) {
+    return city.id != null ? String(city.id) : `${city.latitude},${city.longitude}`;
+  }
+
+  function isFavorited(city) {
+    const id = favoriteId(city);
+    return favorites.some((f) => f.id === id);
+  }
+
+  function toggleFavorite(city, cur) {
+    const id = favoriteId(city);
+    const idx = favorites.findIndex((f) => f.id === id);
+    if (idx >= 0) {
+      favorites.splice(idx, 1);
+    } else {
+      favorites.push({
+        id,
+        name: city.name,
+        admin1: city.admin1,
+        country: city.country,
+        latitude: city.latitude,
+        longitude: city.longitude,
+        temperature: cur.temperature_2m,
+        weatherCode: cur.weather_code,
+      });
+    }
+    saveFavorites();
+    renderFavorites();
+  }
+
+  function removeFavorite(id) {
+    favorites = favorites.filter((f) => f.id !== id);
+    saveFavorites();
+    renderFavorites();
+
+    if (lastSelectedCity && favoriteId(lastSelectedCity) === id) {
+      const favBtn = document.getElementById('favorite-toggle-btn');
+      if (favBtn) {
+        favBtn.textContent = '☆';
+        favBtn.classList.remove('text-brand');
+        favBtn.classList.add('text-silver');
+        favBtn.setAttribute('aria-pressed', 'false');
+        favBtn.setAttribute('aria-label', '즐겨찾기에 추가');
+      }
+    }
+  }
+
+  function isClearWeather(code) {
+    return weatherInfo(code).label.includes('맑음');
+  }
+
+  function favoriteCardHtml(fav) {
+    const info = weatherInfo(fav.weatherCode);
+    const sub = [fav.admin1, fav.country].filter(Boolean).join(', ');
+    return `
+      <div class="favorite-card group relative rounded [border-radius:12px] border border-cloud px-4 py-4 sm:px-5 sm:py-5 hover:border-fog transition-colors duration-200 cursor-pointer" data-fav-id="${escapeHtml(fav.id)}">
+        <button type="button" class="favorite-remove-btn absolute right-3 top-3 text-fog hover:text-graphite transition-colors duration-200 text-sm" aria-label="즐겨찾기에서 삭제" data-fav-id="${escapeHtml(fav.id)}">✕</button>
+        <p class="text-xs text-fog pr-5 truncate">${escapeHtml(sub)}</p>
+        <p class="text-sm font-medium text-ink mt-0.5 pr-5 truncate">${escapeHtml(fav.name)}</p>
+        <div class="mt-3 flex items-center gap-3">
+          <span class="text-3xl leading-none">${info.emoji}</span>
+          <div>
+            <p class="text-2xl font-medium text-ink leading-none">${Math.round(fav.temperature)}°</p>
+            <p class="mt-1 text-xs text-pewter">${info.label}</p>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function getFilteredSortedFavorites() {
+    let list = favorites.slice();
+    if (onlyClear) list = list.filter((f) => isClearWeather(f.weatherCode));
+    if (sortMode === 'desc') list.sort((a, b) => b.temperature - a.temperature);
+    else if (sortMode === 'asc') list.sort((a, b) => a.temperature - b.temperature);
+    return list;
+  }
+
+  function renderFavorites() {
+    const section = document.getElementById('favorites-section');
+    const grid = document.getElementById('favorites-grid');
+    const empty = document.getElementById('favorites-empty');
+    const countEl = document.getElementById('favorites-count');
+
+    if (favorites.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+
+    const list = getFilteredSortedFavorites();
+    countEl.textContent = `총 ${list.length}개 도시`;
+
+    if (list.length === 0) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+    } else {
+      empty.classList.add('hidden');
+      grid.innerHTML = list.map(favoriteCardHtml).join('');
+    }
+
+    const descBtn = document.getElementById('sort-desc-btn');
+    const ascBtn = document.getElementById('sort-asc-btn');
+    [descBtn, ascBtn].forEach((btn) => {
+      btn.classList.remove('bg-brand', 'text-white');
+      btn.classList.add('text-graphite');
+    });
+    if (sortMode === 'desc') {
+      descBtn.classList.add('bg-brand', 'text-white');
+      descBtn.classList.remove('text-graphite');
+    } else if (sortMode === 'asc') {
+      ascBtn.classList.add('bg-brand', 'text-white');
+      ascBtn.classList.remove('text-graphite');
+    }
+
+    const clearToggle = document.getElementById('clear-only-toggle');
+    const clearDot = document.getElementById('clear-only-dot');
+    clearToggle.setAttribute('aria-checked', String(onlyClear));
+    clearToggle.classList.toggle('border-brand', onlyClear);
+    clearToggle.classList.toggle('text-brand', onlyClear);
+    clearDot.classList.toggle('bg-brand', onlyClear);
+    clearDot.classList.toggle('bg-silver', !onlyClear);
+
+    grid.querySelectorAll('.favorite-remove-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeFavorite(btn.getAttribute('data-fav-id'));
+      });
+    });
+    grid.querySelectorAll('.favorite-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const fav = favorites.find((f) => f.id === card.getAttribute('data-fav-id'));
+        if (fav) {
+          loadWeather({
+            id: fav.id,
+            name: fav.name,
+            admin1: fav.admin1,
+            country: fav.country,
+            latitude: fav.latitude,
+            longitude: fav.longitude,
+          });
+        }
+      });
+    });
+  }
+
+  document.getElementById('sort-desc-btn').addEventListener('click', () => {
+    sortMode = sortMode === 'desc' ? 'none' : 'desc';
+    renderFavorites();
+  });
+  document.getElementById('sort-asc-btn').addEventListener('click', () => {
+    sortMode = sortMode === 'asc' ? 'none' : 'asc';
+    renderFavorites();
+  });
+  document.getElementById('clear-only-toggle').addEventListener('click', () => {
+    onlyClear = !onlyClear;
+    renderFavorites();
+  });
+
+  renderFavorites();
+
+  let debounceTimer = null;
+  let activeRequestId = 0;
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim();
+    searchClear.classList.toggle('hidden', q.length === 0);
+
+    clearTimeout(debounceTimer);
+    if (q.length === 0) {
+      closeDropdown();
+      return;
+    }
+    debounceTimer = setTimeout(() => runCitySearch(q), 300);
+  });
+
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    searchClear.classList.add('hidden');
+    closeDropdown();
+    searchInput.focus();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target) && e.target !== searchInput) {
+      closeDropdown();
+    }
+  });
+
+  function closeDropdown() {
+    dropdown.classList.add('hidden');
+    dropdown.innerHTML = '';
+  }
+
+  function openDropdown() {
+    dropdown.classList.remove('hidden');
+  }
+
+  function renderDropdownLoading() {
+    dropdown.innerHTML = `
+      <div class="flex items-center gap-2 px-4 py-4 text-sm text-pewter" aria-live="polite">
+        <span class="inline-block h-4 w-4 rounded-full border-2 border-cloud border-t-brand spinner"></span>
+        검색 중…
+      </div>`;
+    openDropdown();
+  }
+
+  function renderDropdownEmpty() {
+    dropdown.innerHTML = `
+      <div class="px-4 py-4 text-sm text-pewter" aria-live="polite">
+        검색 결과가 없어요. 다른 이름으로 시도해보세요.
+      </div>`;
+    openDropdown();
+  }
+
+  function renderDropdownError() {
+    dropdown.innerHTML = `
+      <div class="px-4 py-4 text-sm text-graphite" aria-live="polite">
+        도시를 검색하는 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.
+      </div>`;
+    openDropdown();
+  }
+
+  function renderDropdownResults(results) {
+    dropdown.innerHTML = '';
+    results.forEach((city) => {
+      const parts = [city.admin1, city.country].filter(Boolean);
+      const sub = parts.join(', ');
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.setAttribute('role', 'option');
+      item.className = 'w-full text-left px-4 py-3 hover:bg-ash transition-colors duration-150 border-b border-cloud last:border-b-0 flex items-baseline justify-between gap-3';
+      item.innerHTML = `
+        <span class="text-sm font-medium text-ink">${escapeHtml(city.name)}</span>
+        <span class="text-xs text-fog whitespace-nowrap">${escapeHtml(sub)}</span>
+      `;
+      item.addEventListener('click', () => {
+        searchInput.value = sub ? `${city.name} (${sub})` : city.name;
+        closeDropdown();
+        loadWeather(city);
+      });
+      dropdown.appendChild(item);
+    });
+    openDropdown();
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  async function fetchCityResults(query) {
+    const url = `${GEOCODE_URL}?name=${encodeURIComponent(query)}&count=10&language=ko&format=json`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('geocoding request failed');
+    const data = await res.json();
+    return data.results || [];
+  }
+
+  async function runCitySearch(query) {
+    const requestId = ++activeRequestId;
+    renderDropdownLoading();
+    try {
+      let results = await fetchCityResults(query);
+      if (requestId !== activeRequestId) return;
+
+      if (results.length === 0) {
+        const translated = translateKoreanCityName(query);
+        if (translated) {
+          results = await fetchCityResults(translated);
+          if (requestId !== activeRequestId) return;
+        }
+      }
+
+      if (results.length === 0) {
+        renderDropdownEmpty();
+      } else {
+        renderDropdownResults(results);
+      }
+    } catch (err) {
+      if (requestId !== activeRequestId) return;
+      renderDropdownError();
+    }
+  }
+
+  function renderCurrentLoading() {
+    currentSection.innerHTML = `
+      <div class="rounded [border-radius:12px] border border-cloud px-6 py-12 flex items-center justify-center" aria-live="polite">
+        <span class="inline-block h-6 w-6 rounded-full border-2 border-cloud border-t-brand spinner"></span>
+      </div>`;
+    forecastSection.innerHTML = '';
+  }
+
+  function renderCurrentError(cityLabel) {
+    currentSection.innerHTML = `
+      <div class="rounded [border-radius:12px] border border-cloud px-6 py-10 text-center" aria-live="polite">
+        <p class="text-sm text-graphite mb-4">날씨 정보를 불러오지 못했어요. 네트워크 상태를 확인해주세요.</p>
+        <button id="retry-btn" type="button" class="rounded [border-radius:4px] bg-brand text-white text-sm font-medium px-5 py-2.5 transition-colors duration-200 hover:bg-brand/90">
+          다시 시도
+        </button>
+      </div>`;
+    forecastSection.innerHTML = '';
+    const retryBtn = document.getElementById('retry-btn');
+    if (retryBtn && lastSelectedCity) {
+      retryBtn.addEventListener('click', () => loadWeather(lastSelectedCity));
+    }
+  }
+
+  let lastSelectedCity = null;
+
+  async function loadWeather(city) {
+    lastSelectedCity = city;
+    renderCurrentLoading();
+
+    try {
+      const params = new URLSearchParams({
+        latitude: city.latitude,
+        longitude: city.longitude,
+        current: 'temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day',
+        daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset',
+        timezone: 'auto',
+      });
+      const res = await fetch(`${FORECAST_URL}?${params.toString()}`);
+      if (!res.ok) throw new Error('forecast request failed');
+      const data = await res.json();
+      renderCurrent(city, data);
+      renderForecast(data);
+    } catch (err) {
+      renderCurrentError();
+    }
+  }
+
+  function renderCurrent(city, data) {
+    const cur = data.current;
+    const info = weatherInfo(cur.weather_code);
+    const parts = [city.admin1, city.country].filter(Boolean);
+    const sub = parts.join(', ');
+    const todayMax = data.daily?.temperature_2m_max?.[0];
+    const todayMin = data.daily?.temperature_2m_min?.[0];
+    const favorited = isFavorited(city);
+
+    currentSection.innerHTML = `
+      <div class="rounded [border-radius:12px] border border-cloud px-6 py-8 sm:px-8 sm:py-10">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-sm text-pewter">${escapeHtml(sub)}</p>
+            <h2 class="text-xl sm:text-2xl font-medium text-ink mt-0.5">${escapeHtml(city.name)}</h2>
+          </div>
+          <button
+            id="favorite-toggle-btn"
+            type="button"
+            aria-pressed="${favorited}"
+            aria-label="${favorited ? '즐겨찾기에서 삭제' : '즐겨찾기에 추가'}"
+            class="shrink-0 text-2xl leading-none transition-transform duration-150 hover:scale-110 ${favorited ? 'text-brand' : 'text-silver'}"
+          >${favorited ? '★' : '☆'}</button>
+        </div>
+
+        <div class="mt-6 flex items-center gap-5">
+          <span class="text-6xl sm:text-7xl leading-none">${info.emoji}</span>
+          <div>
+            <p class="text-5xl sm:text-6xl font-medium text-ink leading-none">${Math.round(cur.temperature_2m)}°</p>
+            <p class="mt-2 text-sm text-graphite">${info.label}</p>
+          </div>
+        </div>
+
+        <div class="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
+          <div>
+            <p class="text-xs text-fog">체감</p>
+            <p class="text-base font-medium text-ink mt-0.5">${Math.round(cur.apparent_temperature)}°</p>
+          </div>
+          <div>
+            <p class="text-xs text-fog">습도</p>
+            <p class="text-base font-medium text-ink mt-0.5">${Math.round(cur.relative_humidity_2m)}%</p>
+          </div>
+          <div>
+            <p class="text-xs text-fog">풍속</p>
+            <p class="text-base font-medium text-ink mt-0.5">${Math.round(cur.wind_speed_10m)} km/h</p>
+          </div>
+          <div>
+            <p class="text-xs text-fog">오늘 최고 · 최저</p>
+            <p class="text-base font-medium text-ink mt-0.5">${todayMax != null ? Math.round(todayMax) : '-'}° · ${todayMin != null ? Math.round(todayMin) : '-'}°</p>
+          </div>
+        </div>
+      </div>`;
+
+    const favBtn = document.getElementById('favorite-toggle-btn');
+    if (favBtn) {
+      favBtn.addEventListener('click', () => {
+        toggleFavorite(city, cur);
+        const nowFavorited = isFavorited(city);
+        favBtn.textContent = nowFavorited ? '★' : '☆';
+        favBtn.classList.toggle('text-brand', nowFavorited);
+        favBtn.classList.toggle('text-silver', !nowFavorited);
+        favBtn.setAttribute('aria-pressed', String(nowFavorited));
+        favBtn.setAttribute('aria-label', nowFavorited ? '즐겨찾기에서 삭제' : '즐겨찾기에 추가');
+      });
+    }
+  }
+
+  function renderForecast(data) {
+    const daily = data.daily;
+    if (!daily || !daily.time) {
+      forecastSection.innerHTML = '';
+      return;
+    }
+
+    const cards = daily.time.map((dateStr, i) => {
+      const info = weatherInfo(daily.weather_code[i]);
+      const max = daily.temperature_2m_max[i];
+      const min = daily.temperature_2m_min[i];
+      return `
+        <div class="snap-start shrink-0 w-28 rounded [border-radius:12px] border border-cloud px-3 py-4 text-center">
+          <p class="text-xs font-medium text-graphite">${formatDayLabel(dateStr, i)}</p>
+          <p class="text-3xl mt-2">${info.emoji}</p>
+          <p class="text-[11px] text-pewter mt-1 truncate">${info.label}</p>
+          <p class="text-sm text-ink mt-2">
+            <span class="font-medium">${Math.round(max)}°</span>
+            <span class="text-fog"> / ${Math.round(min)}°</span>
+          </p>
+        </div>`;
+    }).join('');
+
+    forecastSection.innerHTML = `
+      <h3 class="text-sm font-medium text-graphite mb-3">7일 예보</h3>
+      <div class="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-1">
+        ${cards}
+      </div>`;
+  }
+})();
+</script>
+
+</body>
+</html>
