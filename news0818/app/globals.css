@@ -1,0 +1,581 @@
+:root {
+  --field: #E8EEF4;
+  --card: #FFFFFF;
+  --ink: #0F1B2A;
+  --ink-2: #4E6377;
+  --ink-3: #8397A9;
+  --rule: #CBD9E4;
+  --signal: #D8501A;
+  --sky: #BFDCEF;
+
+  --rail-width: 76px;
+  --font-sans: "IBM Plex Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --field: #0B131D;
+    --card: #131E2B;
+    --ink: #E6EEF6;
+    --ink-2: #97AABB;
+    --ink-3: #677D90;
+    --rule: #24333F;
+    --signal: #FF7C42;
+    --sky: #2A4A66;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: var(--field);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- layout shell ---------- */
+
+.page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 24px 64px;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 28px 0 20px;
+}
+
+.brand {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  margin: 0;
+  color: var(--signal);
+  flex-shrink: 0;
+}
+
+/* ---------- search bar ---------- */
+
+.searchBar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 8px 10px 8px 16px;
+}
+
+.searchInput {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+
+.searchInput::placeholder {
+  color: var(--ink-3);
+}
+
+.searchClear {
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.searchClear:hover {
+  color: var(--signal);
+}
+
+.searchKeycap {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.searchSubmit {
+  background: var(--signal);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.searchSubmit:disabled {
+  background: var(--ink-3);
+}
+
+/* ---------- idle screen ---------- */
+
+.idleSection {
+  padding: 64px 0;
+}
+
+.headline {
+  font-size: 28px;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  max-width: 640px;
+  margin: 0 0 40px;
+}
+
+.keywordChips {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chipGroup {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.chipGroupLabel {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  width: 40px;
+  flex-shrink: 0;
+}
+
+.chipRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  padding: 6px 14px;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.chip:hover {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+/* ---------- sort bar ---------- */
+
+.sortBar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 0;
+  background: color-mix(in srgb, var(--field) 82%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.sortTabs {
+  display: flex;
+  gap: 4px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.sortTab {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.sortTab[aria-pressed="true"] {
+  background: var(--signal);
+  color: #fff;
+}
+
+.resultCount {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.railLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  margin: 0 0 0 auto;
+}
+
+/* ---------- dispatch list / rail ---------- */
+
+.dispatchList {
+  position: relative;
+  padding-left: var(--rail-width);
+}
+
+.dispatchList::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--rail-width) / 2 - 0.5px);
+  border-left: 1px solid var(--rule);
+  transform: scaleY(0);
+  transform-origin: top;
+  animation: railDraw 500ms ease-out forwards;
+}
+
+.dispatchList[data-sort="sim"]::before {
+  border-left-style: dotted;
+}
+
+@keyframes railDraw {
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.dateDivider {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  padding: 16px 0 8px 16px;
+  margin-left: calc(-1 * var(--rail-width));
+  padding-left: var(--rail-width);
+}
+
+.dispatch {
+  position: relative;
+  border-bottom: 1px solid var(--rule);
+  padding: 14px 0 14px 16px;
+  animation: dispatchIn 360ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
+
+@keyframes dispatchIn {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dispatch::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  left: calc(-1 * var(--rail-width) / 2 - 4px);
+  width: 8px;
+  height: 8px;
+  background: var(--card);
+  border: 1.5px solid var(--rule);
+  border-radius: 50%;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.dispatchList[data-sort="sim"] .dispatch::before {
+  border-radius: 2px;
+}
+
+.dispatch:hover::before,
+.dispatch:focus-within::before {
+  background: var(--signal);
+  border-color: var(--signal);
+  transform: scale(1.25);
+}
+
+.stamp {
+  position: absolute;
+  left: calc(-1 * var(--rail-width));
+  width: calc(var(--rail-width) - 16px);
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--ink-3);
+  transition: color 160ms ease;
+}
+
+.dispatch:hover .stamp,
+.dispatch:focus-within .stamp {
+  color: var(--ink);
+}
+
+.dispatchTitle {
+  margin: 0 0 6px;
+  font-size: 17px;
+  line-height: 1.45;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.dispatchTitle a {
+  text-decoration: none;
+}
+
+.dispatchTitle a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--signal);
+}
+
+.dispatchTitle b,
+.dispatchDescription b {
+  color: var(--signal);
+  background: color-mix(in srgb, var(--sky) 42%, transparent);
+  font-weight: 600;
+}
+
+.dispatchDescription {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dispatchMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.dispatchOriginal {
+  color: var(--signal);
+  text-decoration: none;
+}
+
+.dispatchOriginal:hover {
+  text-decoration: underline;
+}
+
+/* ---------- more / pagination ---------- */
+
+.moreSection {
+  padding: 24px 0 0 var(--rail-width);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.moreButton {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.moreButton:hover:not(:disabled) {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.moreEndMessage {
+  font-size: 13px;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+/* ---------- state panels ---------- */
+
+.statePanel {
+  padding: 48px 0;
+}
+
+.statePanelTitle {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.statePanelBody {
+  font-size: 14px;
+  color: var(--ink-2);
+  margin: 0 0 20px;
+}
+
+.errorCode {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  color: var(--signal);
+  border-radius: 6px;
+  padding: 3px 8px;
+  margin-bottom: 12px;
+}
+
+.retryButton {
+  background: var(--signal);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.moreErrorPanel {
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+
+.moreErrorPanel .statePanelBody {
+  margin: 0 0 12px;
+}
+
+/* ---------- skeleton ---------- */
+
+.skeletonList {
+  padding-left: var(--rail-width);
+}
+
+.skeletonRow {
+  padding: 14px 0 14px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.skeletonBar {
+  border-radius: 3px;
+  background-size: 400% 100%;
+  background-image: linear-gradient(90deg, var(--rule) 25%, var(--card) 37%, var(--rule) 63%);
+  animation: shimmer 1.4s ease infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+/* ---------- reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .dispatchList::before,
+  .dispatch,
+  .dispatch::before,
+  .skeletonBar {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 640px) {
+  :root {
+    --rail-width: 56px;
+  }
+
+  .page {
+    padding: 0 14px 48px;
+  }
+
+  .topBar {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .headline {
+    font-size: 22px;
+  }
+
+  .searchKeycap {
+    display: none;
+  }
+
+  .railLabel {
+    display: none;
+  }
+}
