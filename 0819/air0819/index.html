@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>대기 한눈에 — 지역별 대기질</title>
+<meta name="description" content="전국 17개 시도의 미세먼지 상태를 지도 타일로 한눈에 비교하는 서비스" />
+<meta name="theme-color" content="#0f172a" />
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>대기 한눈에</h1>
+  <div class="topbar-actions">
+    <span id="dataTime" class="data-time">측정 시각 확인 중…</span>
+    <button id="refreshBtn" class="refresh-btn" type="button" aria-label="새로고침">새로고침</button>
+  </div>
+</header>
+
+<main id="app">
+
+  <section id="mapSection" class="map-section" aria-label="전국 대기질 지도">
+    <div id="mapWrap" class="map-wrap">
+      <svg id="koreaOutline" class="korea-outline" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <path d="M30,5 L45,8 L50,15 L48,25 L55,30 L60,40 L68,38 L75,45 L80,55 L78,62 L70,65 L65,75 L55,78 L50,85 L40,80 L35,70 L25,68 L18,60 L15,50 L20,40 L18,30 L22,20 L28,12 Z" />
+        <ellipse cx="18" cy="92" rx="6" ry="4" />
+      </svg>
+      <div id="tileLayer" class="tile-layer"></div>
+    </div>
+
+    <div id="baekryeongCard" class="baekryeong-card" role="group" aria-label="백령도 서해 유입 감시">
+      <span class="baekryeong-label">서해 유입 감시 · 백령도</span>
+      <span id="baekryeongValue" class="baekryeong-value">–</span>
+    </div>
+
+    <div class="legend" aria-hidden="false">
+      <span class="legend-title">WHO 기준</span>
+      <span class="legend-item"><i class="dot success"></i>좋음</span>
+      <span class="legend-item"><i class="dot accent"></i>보통</span>
+      <span class="legend-item"><i class="dot warning"></i>나쁨</span>
+      <span class="legend-item"><i class="dot danger"></i>매우나쁨</span>
+      <span class="legend-item"><i class="dot muted"></i>결측</span>
+    </div>
+  </section>
+
+  <section id="errorScreen" class="error-screen hidden" role="alert">
+    <p id="errorMessage">데이터를 불러오지 못했습니다.</p>
+    <button id="retryBtn" class="retry-btn" type="button">다시 시도</button>
+  </section>
+
+</main>
+
+<div id="detailOverlay" class="detail-overlay hidden">
+  <div id="detailCard" class="detail-card" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <button id="detailClose" class="detail-close" type="button" aria-label="닫기">×</button>
+    <h2 id="detailTitle">지역명</h2>
+
+    <label class="station-label" for="stationSelect">측정소</label>
+    <select id="stationSelect" class="station-select"></select>
+
+    <div class="chart-wrap">
+      <svg id="trendChart" viewBox="0 0 240 120" preserveAspectRatio="none" aria-label="24시간 PM2.5 추이"></svg>
+      <p id="chartStatus" class="chart-status"></p>
+    </div>
+
+    <details class="gas-details">
+      <summary>가스상 물질 (O₃ · NO₂ · CO · SO₂)</summary>
+      <dl id="gasList" class="gas-list"></dl>
+    </details>
+
+    <div class="metal-box">
+      <span class="metal-label">납(Pb) 24시간 평균 · <span id="metalRegionName">–</span></span>
+      <span id="metalValue" class="metal-value">–</span>
+      <span id="metalRatio" class="metal-ratio"></span>
+    </div>
+  </div>
+</div>
+
+<div id="offlineBanner" class="offline-banner hidden">연결 없음 — 오프라인 상태입니다</div>
+
+<template id="tileTemplate">
+  <button type="button" class="tile" data-role="tile">
+    <span class="tile-face-label" data-role="faceLabel"></span>
+    <span class="tile-region" data-role="regionName"></span>
+    <span class="tile-value" data-role="value"></span>
+    <span class="tile-dots" data-role="dots">
+      <i></i><i></i><i></i><i></i>
+    </span>
+  </button>
+</template>
+
+<script src="/data.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

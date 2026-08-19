@@ -1,0 +1,14 @@
+{
+  "name": "대기 한눈에",
+  "short_name": "대기한눈에",
+  "description": "전국 17개 시도의 미세먼지 상태를 지도 타일로 한눈에 비교",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
